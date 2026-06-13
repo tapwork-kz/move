@@ -42,7 +42,6 @@ export default function App() {
 
   const departments = ["#Цифра 🟠", "#МБТ 🟡", "#КБТ 🔵", "#Другое"];
 
-  // Шаг 1. Чистое считывание авторизации при старте приложения
   useEffect(() => {
     const savedUser = localStorage.getItem('promo_app_user');
     if (savedUser) {
@@ -52,11 +51,9 @@ export default function App() {
     }
   }, []);
 
-  // Шаг 2. Изолированная и безопасная логика обновлений и фокуса окна
   useEffect(() => {
-    if (!user) return; // Жесткий щит от пустых сессий
-
-    setDocuments([]); // Очищаем старые данные во избежание залипания
+    if (!user) return;
+    setDocuments([]); 
     fetchDocuments();
     updateTabCounters();
 
@@ -64,50 +61,36 @@ export default function App() {
       fetchDocuments();
       updateTabCounters();
     };
-
     window.addEventListener('focus', handleWindowFocus);
     return () => window.removeEventListener('focus', handleWindowFocus);
   }, [currentTab, selectedDept, searchQuery, dateFilter, user]);
 
   const updateTabCounters = async () => {
-    if (!user) return; // Защита
+    if (!user) return;
     try {
       let query = supabase.from('documents').select('status, dept');
-      const isAdmin = user.role === 'Директор' || user.role === 'Супервайзер';
-      if (!isAdmin) {
+      if (user.role !== 'Директор' && user.role !== 'Супервайзер') {
         query = query.or(`dept.eq."${user.dept}",dept.eq."#Другое"`);
       } else if (selectedDept) {
         query = query.eq('dept', selectedDept);
       }
-
       const { data } = await query;
       if (data) {
         const counts = { new: 0, processed: 0, completed: 0, archive: 0 };
-        data.forEach(doc => {
-          if (counts[doc.status] !== undefined) counts[doc.status]++;
-        });
+        data.forEach(doc => { if (counts[doc.status] !== undefined) counts[doc.status]++; });
         setTabCounts(counts);
       }
-    } catch (err) {
-      console.error(err);
-    }
+    } catch (err) { console.error(err); }
   };
 
-  const handleTouchStart = (e) => {
-    setTouchStart(e.targetTouches[0].clientX);
-  };
-
+  const handleTouchStart = (e) => setTouchStart(e.targetTouches[0].clientX);
   const handleTouchEnd = (e) => {
     if (!touchStart) return;
     const touchEnd = e.changedTouches[0].clientX;
     const diff = touchStart - touchEnd;
     const currentIdx = tabOrder.indexOf(currentTab);
-
-    if (diff > 70 && currentIdx < tabOrder.length - 1) {
-      setCurrentTab(tabOrder[currentIdx + 1]); 
-    } else if (diff < -70 && currentIdx > 0) {
-      setCurrentTab(tabOrder[currentIdx - 1]); 
-    }
+    if (diff > 70 && currentIdx < tabOrder.length - 1) setCurrentTab(tabOrder[currentIdx + 1]);
+    else if (diff < -70 && currentIdx > 0) setCurrentTab(tabOrder[currentIdx - 1]);
     setTouchStart(null);
   };
 
@@ -116,31 +99,14 @@ export default function App() {
     setAuthError('');
     setAuthLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('users')
-        .select('*')
-        .eq('iin', authForm.iin)
-        .eq('password', authForm.password)
-        .maybeSingle();
-
+      const { data, error } = await supabase.from('users').select('*').eq('iin', authForm.iin).eq('password', authForm.password).maybeSingle();
       if (error) throw error;
-      if (!data) {
-        setAuthError('Неверный ИИН или пароль.');
-        return;
-      }
-      if (data.login_status !== true) {
-        setAuthError('Вход запрещен. Аккаунт деактивирован.');
-        return;
-      }
-
+      if (!data) { setAuthError('Неверный ИИН или пароль.'); return; }
+      if (data.login_status !== true) { setAuthError('Вход запрещен.'); return; }
       setUser(data);
       setSelectedDept(data.role === 'Директор' || data.role === 'Супервайзер' ? '' : data.dept);
       localStorage.setItem('promo_app_user', JSON.stringify(data));
-    } catch (err) {
-      setAuthError('Ошибка: ' + err.message);
-    } finally {
-      setAuthLoading(false);
-    }
+    } catch (err) { setAuthError('Ошибка: ' + err.message); } finally { setAuthLoading(false); }
   };
 
   const handleLogout = () => {
@@ -149,53 +115,29 @@ export default function App() {
   };
 
   const fetchDocuments = async () => {
-    if (!user) return; // Защита
+    if (!user) return;
     setLoading(true);
     try {
       let query = supabase.from('documents').select(`
         *,
         processed_by:users!processed_by_iin(full_name),
-        completed_by:users!completed_by_iin(full_name)
+        completed_by:users!completed_by_iin(full_name),
+        document_items(price)
       `);
 
-      const isAdmin = user.role === 'Директор' || user.role === 'Супервайзер';
-      if (!isAdmin) {
+      if (user.role !== 'Директор' && user.role !== 'Супервайзер') {
         query = query.or(`dept.eq."${user.dept}",dept.eq."#Другое"`);
       } else if (selectedDept) {
         query = query.eq('dept', selectedDept);
       }
-
       query = query.eq('status', currentTab);
-
-      if (searchQuery) {
-        query = query.or(`promo_number.ilike.%${searchQuery}%,file_name.ilike.%${searchQuery}%`);
-      }
-
-      if (dateFilter) {
-        query = query.lte('period_start', dateFilter).gte('period_end', dateFilter);
-      }
+      if (searchQuery) query = query.or(`promo_number.ilike.%${searchQuery}%,file_name.ilike.%${searchQuery}%`);
+      if (dateFilter) query = query.lte('period_start', dateFilter).gte('period_end', dateFilter);
 
       const { data, error } = await query.order('created_at', { ascending: false });
       if (error) throw error;
-
-      if (currentTab === 'processed') {
-        const todayStr = new Date().toISOString().split('T')[0];
-        const expiredDocs = data.filter(doc => doc.period_end && doc.period_end < todayStr);
-        
-        if (expiredDocs.length > 0) {
-          const expiredIds = expiredDocs.map(d => d.id);
-          await supabase.from('documents').update({ status: 'completed' }).in('id', expiredIds);
-          fetchDocuments();
-          return;
-        }
-      }
-
       setDocuments(data || []);
-    } catch (err) {
-      console.error(err.message);
-    } finally {
-      setLoading(false);
-    }
+    } catch (err) { console.error(err.message); } finally { setLoading(false); }
   };
 
   const openDocDetails = async (doc) => {
@@ -203,21 +145,15 @@ export default function App() {
     setModalTab('in_stock');
     setItemSearch('');
     try {
-      const { data, error } = await supabase
-        .from('document_items')
-        .select('*')
-        .eq('document_id', doc.id);
+      const { data, error } = await supabase.from('document_items').select('*').eq('document_id', doc.id);
       if (error) throw error;
       setDocItems(data || []);
-    } catch (err) {
-      console.error(err.message);
-    }
+    } catch (err) { console.error(err.message); }
   };
 
   const executeStatusChange = async () => {
     const { type, docId } = confirmModal;
     const updatePayload = {};
-
     if (type === 'process') {
       updatePayload.status = 'processed';
       updatePayload.processed_by_iin = user.iin;
@@ -227,22 +163,28 @@ export default function App() {
       updatePayload.completed_by_iin = user.iin;
       updatePayload.completed_at = new Date().toISOString();
     }
-
     try {
       const { error } = await supabase.from('documents').update(updatePayload).eq('id', docId);
       if (error) throw error;
-
       setConfirmModal({ show: false, type: '', docId: null });
       if (selectedDoc) setSelectedDoc(null);
       fetchDocuments();
-    } catch (err) {
-      alert(err.message);
-    }
+    } catch (err) { alert(err.message); }
   };
 
+  // Умная проверка на подарок/комплект (по названию файла ИЛИ по отсутствию цен внутри)
   const isGiftDocument = (doc) => {
     const nameLower = doc.file_name ? doc.file_name.toLowerCase() : '';
-    return nameLower.includes('подарок') || nameLower.includes('комплект');
+    if (nameLower.includes('подарок') || nameLower.includes('комплект')) return true;
+    
+    // Проверка содержания: если у всех вложенных позиций цена пустая или равна 'Акция'
+    if (doc.document_items && doc.document_items.length > 0) {
+      const hasRealPrices = doc.document_items.some(item => 
+        item.price && item.price !== '' && item.price !== 'Акция' && item.price !== 'Переоценка'
+      );
+      if (!hasRealPrices && doc.promo_number !== '%🔖 Переоценка%') return true;
+    }
+    return false;
   };
 
   const getShortName = (fullName) => {
@@ -258,6 +200,15 @@ export default function App() {
       default: return 'bg-slate-50 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700';
     }
   };
+
+  // === ВЫЧИСЛЯЕМЫЙ СТЭЙТ СТРОК ДЛЯ МОДАЛКИ (ТО ЧТО БЫЛО УТЕРЯНО) ===
+  const filteredItems = docItems.filter(item => {
+    const matchesText = item.raw_name ? item.raw_name.toLowerCase().includes(itemSearch.toLowerCase()) : false;
+    if (modalTab === 'in_stock') {
+      return matchesText && item.is_in_stock;
+    }
+    return matchesText;
+  });
 
   if (!user) {
     return (
@@ -296,14 +247,13 @@ export default function App() {
             <div className="bg-blue-600 text-white w-6 h-6 rounded-md flex items-center justify-center font-bold text-xs">PM</div>
             <div>
               <h1 className="text-xs font-bold text-slate-900 dark:text-slate-100 leading-none">Мониторинг</h1>
-              <div className="flex items-center gap-1 text-[10px] text-slate-400 mt-0.5">
+              <div className="flex items-center gap-1 text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">
                 <span>{getShortName(user?.full_name)}</span>
                 <span>•</span>
                 <span>{user?.dept}</span>
               </div>
             </div>
           </div>
-
           {(user?.role === 'Директор' || user?.role === 'Супервайзер') && (
             <div className="flex items-center gap-1 bg-amber-50 dark:bg-slate-800 border border-amber-200 dark:border-slate-700 px-1.5 py-0.5 rounded-lg text-[10px]">
               <IconAdmin />
@@ -350,7 +300,6 @@ export default function App() {
                 onChange={e => setSearchQuery(e.target.value)}
               />
             </div>
-
             <div className="flex items-center justify-center bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 w-8 h-8 rounded-lg shrink-0 relative">
               <span className={dateFilter ? 'text-blue-500' : 'text-slate-400'}><IconCalendar /></span>
               <input type="date" className="absolute inset-0 opacity-0 cursor-pointer" value={dateFilter} onChange={e => setDateFilter(e.target.value)} />
@@ -387,7 +336,7 @@ export default function App() {
                     <h3 className="font-normal text-slate-700 dark:text-slate-200 text-xs sm:text-sm truncate">{doc.file_name}</h3>
                     {(doc.processed_by || doc.completed_by) && (
                       <div className="flex flex-wrap gap-x-2 text-[9px] text-slate-400 dark:text-slate-500 pt-0.5">
-                        {doc.processed_by && <span>✍px {getShortName(doc.processed_by?.full_name)}</span>}
+                        {doc.processed_by && <span>✍️ {getShortName(doc.processed_by?.full_name)}</span>}
                         {doc.completed_by && <span>🏷️ {getShortName(doc.completed_by?.full_name)}</span>}
                       </div>
                     )}
@@ -395,7 +344,6 @@ export default function App() {
                   <div className="text-slate-300 dark:text-slate-700 shrink-0"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7"/></svg></div>
                 </div>
               ))}
-              
               <div className="text-center pt-5 pb-3 text-slate-300 dark:text-slate-800 text-[10px] font-medium tracking-widest select-none">
                 • КОНЕЦ СПИСКА •
               </div>
@@ -495,7 +443,7 @@ export default function App() {
 
       {confirmModal.show && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white p-5 rounded-xl max-w-xs w-full shadow-2xl text-center border dark:border-slate-800">
+          <div className="bg-white dark:bg-slate-900 p-5 rounded-xl max-w-xs w-full shadow-2xl text-center border dark:border-slate-800">
             <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 mb-1">Подтверждение</h3>
             <p className="text-[11px] text-slate-400 dark:text-slate-500 mb-4 leading-relaxed">
               {confirmModal.type === 'process' ? 'Оформить промо-акцию?' : 'Ценники обновлены?'}
