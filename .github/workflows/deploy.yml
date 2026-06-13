@@ -14,6 +14,10 @@ concurrency:
   group: "pages"
   cancel-in-progress: true
 
+# Включаем принудительное использование Node 24, чтобы убрать предупреждения GitHub
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   deploy:
     environment:
@@ -27,10 +31,10 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24 # Переключили на актуальную 24-ю версию
           
       - name: Install dependencies
-        run: npm install.  # <-- ИСПРАВЛЕНО ТУТ (вместо npm ci)
+        run: npm install
         
       - name: Build
         run: npm run build
