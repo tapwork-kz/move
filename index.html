@@ -2,12 +2,29 @@
 <html lang="ru">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Управление Промо-Акциями</title>
+    <!-- Жестко блокируем масштабирование (user-scalable=no) и фиксируем масштаб на 1.0 -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>Промо-Акциями</title>
     
+    <!-- Подключаем Tailwind CSS -->
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    
+    <style>
+      /* Дополнительный глобальный запрет жестов масштабирования на уровне браузера */
+      html, body {
+        touch-action: pan-x pan-y;
+      }
+      /* Скрываем скроллбар у вкладок, чтобы было красиво на мобилках */
+      .no-scrollbar::-webkit-scrollbar {
+        display: none;
+      }
+      .no-scrollbar {
+        -ms-overflow-style: none;
+        scrollbar-width: none;
+      }
+    </style>
   </head>
-  <body class="bg-slate-100 m-0 p-0">
+  <body class="bg-slate-100 m-0 p-0 text-slate-800 antialiased selection:bg-blue-500 selection:text-white">
     
     <div id="root"></div>
 
