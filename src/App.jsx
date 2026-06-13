@@ -1,33 +1,40 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from './supabaseClient';
 
+// === СТРОГИЕ MATERIAL DESIGN SVG ИКОНКИ (ВМЕСТО ЭМОДЗИ) ===
+const IconLogin = () => <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 7a2 2 0 012 2v6a2 2 0 01-2 2H9a2 2 0 01-2-2V9a2 2 0 012-2m6 0V5a2 2 0 00-2-2H9a2 2 0 00-2 2v2m6 0h-6M12 11v4m-2-2h4"/></svg>;
+const IconNew = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0a2 2 0 01-2 2H6a2 2 0 01-2-2m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"/></svg>;
+const IconProcessed = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>;
+const IconCompleted = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>;
+const IconArchive = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/></svg>;
+const IconSearch = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>;
+const IconCalendar = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>;
+const IconAdmin = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.952 11.952 0 01-7.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>;
+const IconClose = () => <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>;
+const IconUser = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>;
+
 export default function App() {
-  // === СОСТОЯНИЕ АВТОРИЗАЦИИ ===
   const [user, setUser] = useState(null);
   const [authForm, setAuthForm] = useState({ iin: '', password: '' });
   const [authError, setAuthError] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
 
-  // === НАСТРОЙКИ ФИЛЬТРАЦИИ И ВКЛАДОК ===
-  const [currentTab, setCurrentTab] = useState('new'); // 'new', 'processed', 'completed', 'archive'
-  const [selectedDept, setSelectedDept] = useState(''); // Для админ-режима
-  const [searchQuery, setSearchQuery] = useState(''); // Поиск по номеру или названию документа
-  const [dateFilter, setDateFilter] = useState(''); // Фильтр по дате действия акции
+  const [currentTab, setCurrentTab] = useState('new');
+  const [selectedDept, setSelectedDept] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [dateFilter, setDateFilter] = useState('');
 
-  // === ДАННЫЕ ИЗ БАЗЫ ДАННЫХ ===
   const [documents, setDocuments] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  // === СОСТОЯНИЕ МОДАЛЬНЫХ ОКОН ===
-  const [selectedDoc, setSelectedDoc] = useState(null); // Активный документ для просмотра
-  const [docItems, setDocItems] = useState([]); // Товары внутри документа
-  const [modalTab, setModalTab] = useState('in_stock'); // 'in_stock', 'all', 'source'
-  const [itemSearch, setItemSearch] = useState(''); // Поиск по товарам в модалке
+  const [selectedDoc, setSelectedDoc] = useState(null);
+  const [docItems, setDocItems] = useState([]);
+  const [modalTab, setModalTab] = useState('in_stock');
+  const [itemSearch, setItemSearch] = useState('');
   const [confirmModal, setConfirmModal] = useState({ show: false, type: '', docId: null });
 
   const departments = ["#Цифра 🟠", "#МБТ 🟡", "#КБТ 🔵", "#Другое"];
 
-  // Проверка сохраненной сессии пользователя при первой загрузке
   useEffect(() => {
     const savedUser = localStorage.getItem('promo_app_user');
     if (savedUser) {
@@ -37,14 +44,12 @@ export default function App() {
     }
   }, []);
 
-  // Автоматическая загрузка данных при изменении фильтров
   useEffect(() => {
     if (user) {
       fetchDocuments();
     }
   }, [currentTab, selectedDept, searchQuery, dateFilter, user]);
 
-  // === ОПЕРАЦИИ АВТОРИЗАЦИИ ===
   const handleLogin = async (e) => {
     e.preventDefault();
     setAuthError('');
@@ -58,12 +63,10 @@ export default function App() {
         .maybeSingle();
 
       if (error) throw error;
-
       if (!data) {
         setAuthError('Неверный ИИН или пароль. Проверьте данные.');
         return;
       }
-
       if (data.login_status !== true) {
         setAuthError('Вход запрещен. Ваш аккаунт деактивирован в табеле.');
         return;
@@ -73,7 +76,7 @@ export default function App() {
       setSelectedDept(data.role === 'Директор' || data.role === 'Супервайзер' ? '' : data.dept);
       localStorage.setItem('promo_app_user', JSON.stringify(data));
     } catch (err) {
-      setAuthError('Ошибка подключения к базе данных: ' + err.message);
+      setAuthError('Ошибка базы данных: ' + err.message);
     } finally {
       setAuthLoading(false);
     }
@@ -84,7 +87,6 @@ export default function App() {
     localStorage.removeItem('promo_app_user');
   };
 
-  // === ПОЛУЧЕНИЕ И АВТОМАТИЧЕСКИЙ ПЕРЕНОС ДОКУМЕНТОВ ===
   const fetchDocuments = async () => {
     setLoading(true);
     try {
@@ -94,7 +96,6 @@ export default function App() {
         completed_by:users!completed_by_iin(full_name)
       `);
 
-      // Ролевой фильтр: Админ видит всё / Сотрудник только свой отдел (dept)
       const isAdmin = user.role === 'Директор' || user.role === 'Супервайзер';
       if (!isAdmin) {
         query = query.or(`dept.eq."${user.dept}",dept.eq."#Другое"`);
@@ -102,15 +103,12 @@ export default function App() {
         query = query.eq('dept', selectedDept);
       }
 
-      // Фильтр по текущей вкладке
       query = query.eq('status', currentTab);
 
-      // Живой поиск по номеру акции/переоценки или названию файла
       if (searchQuery) {
         query = query.or(`promo_number.ilike.%${searchQuery}%,file_name.ilike.%${searchQuery}%`);
       }
 
-      // Фильтр по дате (выбранная дата должна попадать в период акции)
       if (dateFilter) {
         query = query.lte('period_start', dateFilter).gte('period_end', dateFilter);
       }
@@ -118,19 +116,13 @@ export default function App() {
       const { data, error } = await query.order('created_at', { ascending: false });
       if (error) throw error;
 
-      // СТРОГОЕ УСЛОВИЕ: Сроки оформления истекли -> Автоперенос в "Завершенные"
       if (currentTab === 'processed') {
         const todayStr = new Date().toISOString().split('T')[0];
         const expiredDocs = data.filter(doc => doc.period_end && doc.period_end < todayStr);
         
         if (expiredDocs.length > 0) {
           const expiredIds = expiredDocs.map(d => d.id);
-          await supabase
-            .from('documents')
-            .update({ status: 'completed' })
-            .in('id', expiredIds);
-          
-          // Рекурсивно обновляем список для отображения актуального состояния
+          await supabase.from('documents').update({ status: 'completed' }).in('id', expiredIds);
           fetchDocuments();
           return;
         }
@@ -138,13 +130,12 @@ export default function App() {
 
       setDocuments(data || []);
     } catch (err) {
-      console.error("Ошибка получения документов:", err.message);
-    } finally {
+      console.error(err.message);
+    } subdivision: finally {
       setLoading(false);
     }
   };
 
-  // === ЗАГРУЗКА ТОВАРОВ ДЛЯ МОДАЛЬНОГО ОКНА ===
   const openDocDetails = async (doc) => {
     setSelectedDoc(doc);
     setModalTab('in_stock');
@@ -154,15 +145,13 @@ export default function App() {
         .from('document_items')
         .select('*')
         .eq('document_id', doc.id);
-      
       if (error) throw error;
       setDocItems(data || []);
     } catch (err) {
-      console.error("Ошибка загрузки состава документа:", err.message);
+      console.error(err.message);
     }
   };
 
-  // === ПЕРЕВОД ДОКУМЕНТА ПО СТАТУСАМ (БИЗНЕС-ЛОГИКА) ===
   const executeStatusChange = async () => {
     const { type, docId } = confirmModal;
     const updatePayload = {};
@@ -178,22 +167,17 @@ export default function App() {
     }
 
     try {
-      const { error } = await supabase
-        .from('documents')
-        .update(updatePayload)
-        .eq('id', docId);
-
+      const { error } = await supabase.from('documents').update(updatePayload).eq('id', docId);
       if (error) throw error;
 
       setConfirmModal({ show: false, type: '', docId: null });
       if (selectedDoc) setSelectedDoc(null);
       fetchDocuments();
     } catch (err) {
-      alert("Не удалось обновить статус: " + err.message);
+      alert(err.message);
     }
   };
 
-  // Сортировка и поиск строк товаров внутри модалки
   const filteredItems = docItems.filter(item => {
     const matchesText = item.raw_name.toLowerCase().includes(itemSearch.toLowerCase());
     if (modalTab === 'in_stock') {
@@ -211,273 +195,219 @@ export default function App() {
     }
   };
 
-  // ВХОД В ПРИЛОЖЕНИЕ (ИНТЕРФЕЙС АВТОРИЗАЦИИ)
+  // ЭКРАН ВХОДА
   if (!user) {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
-        <form onSubmit={handleLogin} className="bg-white p-8 rounded-2xl shadow-2xl max-w-md w-full border border-slate-200">
+        <form onSubmit={handleLogin} className="bg-white p-6 sm:p-8 rounded-2xl shadow-2xl max-w-md w-full border border-slate-200">
           <div className="flex flex-col items-center mb-6">
-            <div className="p-3 bg-blue-100 rounded-2xl text-blue-600 mb-3">
-              <svg className="w-8 h-8" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
-            </div>
-            <h2 className="text-2xl font-black text-slate-800 text-center">Авторизация Табель</h2>
-            <p className="text-sm text-slate-400 mt-1">Доступ к распределению промо-акций</p>
+            <div className="p-3 bg-blue-100 rounded-2xl text-blue-600 mb-3"><IconLogin /></div>
+            <h2 className="text-xl font-bold text-slate-800 text-center">Авторизация Табель</h2>
           </div>
-
-          {authError && (
-            <div className="mb-4 p-3.5 bg-red-50 text-red-600 text-xs font-semibold rounded-xl border border-red-200 flex items-center gap-2">
-              <svg className="w-5 h-5 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
-              {authError}
-            </div>
-          )}
-
+          {authError && <div className="mb-4 p-3 bg-red-50 text-red-600 text-xs font-semibold rounded-xl border border-red-200">{authError}</div>}
           <div className="space-y-4 mb-6">
             <div>
               <label className="block text-xs font-bold uppercase text-slate-500 tracking-wider mb-2">ИИН (Логин)</label>
-              <input type="text" required disabled={authLoading} placeholder="Введите ваш ИИН" className="w-full px-4 py-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition font-medium" value={authForm.iin} onChange={e => setAuthForm({ ...authForm, iin: e.target.value })} />
+              <!-- text-base исключает автозум поля на iOS -->
+              <input type="text" required placeholder="Введите ваш ИИН" className="w-full px-4 py-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-base font-medium" value={authForm.iin} onChange={e => setAuthForm({ ...authForm, iin: e.target.value })} />
             </div>
             <div>
               <label className="block text-xs font-bold uppercase text-slate-500 tracking-wider mb-2">Пароль</label>
-              <input type="password" required disabled={authLoading} placeholder="••••••••" className="w-full px-4 py-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition" value={authForm.password} onChange={e => setAuthForm({ ...authForm, password: e.target.value })} />
+              <input type="password" required placeholder="••••••••" className="w-full px-4 py-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-base" value={authForm.password} onChange={e => setAuthForm({ ...authForm, password: e.target.value })} />
             </div>
           </div>
-
-          <button type="submit" disabled={authLoading} className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3.5 rounded-xl font-bold transition shadow-lg shadow-blue-600/20 flex items-center justify-center gap-2">
-            {authLoading ? 'Проверка данных...' : 'Войти в систему'}
-          </button>
+          <button type="submit" disabled={authLoading} className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3.5 rounded-xl font-bold transition">Войти</button>
         </form>
       </div>
     );
   }
 
-  // ОСНОВНОЙ РАБОЧИЙ ИНТЕРФЕЙС ПРИЛОЖЕНИЯ
+  // ГЛАВНЫЙ ИНТЕРФЕЙС
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 antialiased font-sans">
-      
-      {/* ПАНЕЛЬ НАВИГАЦИИ И ПОЛЬЗОВАТЕЛЯ (ВЕРХНЯЯ ШАПКА) */}
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-20 px-4 sm:px-8 py-4 flex flex-wrap items-center justify-between gap-4 shadow-sm">
-        <div className="flex items-center gap-4">
-          <div className="bg-blue-600 text-white p-2 rounded-xl font-black text-lg tracking-wider shadow-md shadow-blue-600/10">PM</div>
-          <div>
-            <h1 className="text-base font-black text-slate-900 leading-tight">Мониторинг Переоценок</h1>
-            <div className="flex items-center gap-2 text-xs text-slate-500 mt-0.5">
-              <span className="font-bold text-slate-700">{user.full_name}</span>
-              <span>•</span>
-              <span className="bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-medium">{user.dept}</span>
-              <span className="bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded font-bold uppercase text-[10px]">{user.role}</span>
+    <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col justify-between">
+      <div>
+        {/* ХЕДЕР БЕЗ КНОПКИ ВЫЙТИ */}
+        <header className="bg-white border-b border-slate-200 sticky top-0 z-20 px-4 sm:px-6 py-3.5 flex items-center justify-between gap-4 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="bg-blue-600 text-white w-8 h-8 rounded-lg flex items-center justify-center font-bold text-sm shadow-md">PM</div>
+            <div>
+              <h1 className="text-sm font-bold text-slate-900 leading-none">Мониторинг Переоценок</h1>
+              <div className="flex items-center gap-1.5 text-xs text-slate-500 mt-1 font-medium">
+                <span className="text-slate-700 font-semibold">{user.full_name}</span>
+                <span>•</span>
+                <span>{user.dept}</span>
+              </div>
             </div>
           </div>
-        </div>
 
-        <div className="flex items-center gap-4 flex-wrap sm:flex-nowrap">
-          {/* АДМИНИСТРАТИВНЫЙ РЕЖИМ (ДОСТУПЕН ТОЛЬКО ДЛЯ ДИРЕКТОРОВ И СУПЕРВАЙЗЕРОВ) */}
           {(user.role === 'Директор' || user.role === 'Супервайзер') && (
-            <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-xl text-xs">
-              <span className="font-extrabold text-amber-800 flex items-center gap-1">🛡️ Режим Управления:</span>
-              <select className="bg-white border border-slate-200 rounded-lg p-1 font-bold text-slate-700 outline-none focus:ring-1 focus:ring-amber-400" value={selectedDept} onChange={e => setSelectedDept(e.target.value)}>
-                <option value="">Все отделы компании</option>
+            <div className="flex items-center gap-1.5 bg-amber-50 border border-amber-200 px-2 py-1 rounded-lg text-xs">
+              <IconAdmin />
+              <select className="bg-white border border-slate-200 rounded p-0.5 font-bold text-slate-700 outline-none" value={selectedDept} onChange={e => setSelectedDept(e.target.value)}>
+                <option value="">Все отделы</option>
                 {departments.map(d => <option key={d} value={d}>{d}</option>)}
               </select>
             </div>
           )}
-          <button onClick={handleLogout} className="text-xs font-bold text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 px-3 py-2 rounded-xl transition flex items-center gap-1">
-            Выйти
-          </button>
-        </div>
-      </header>
+        </header>
 
-      <main className="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
-        
-        {/* ВКЛАДКИ ПРИЛОЖЕНИЯ (МАРШРУТЫ ТАБОВ) */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 bg-slate-200/60 p-1.5 rounded-2xl mb-6 shadow-inner">
-          {[
-            { id: 'new', label: '📥 Новые акции' },
-            { id: 'processed', label: '⏳ Оформленные' },
-            { id: 'completed', label: '✅ Завершенные' },
-            { id: 'archive', label: '📦 Архив акций' }
-          ].map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => { setCurrentTab(tab.id); setDateFilter(''); }}
-              className={`py-3 px-4 font-bold text-xs sm:text-sm rounded-xl transition-all duration-200 text-center ${currentTab === tab.id ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-900'}`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-
-        {/* ПАНЕЛЬ ФИЛЬТРАЦИИ ПО ДАТЕ И УМНОГО ПОИСКА */}
-        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap items-center justify-between gap-4 mb-6">
-          <div className="relative flex-1 min-w-[280px]">
-            <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none text-slate-400">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-            </span>
-            <input
-              type="text"
-              placeholder="Введите номер акции или название документа для поиска..."
-              className="w-full pl-11 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:ring-2 focus:ring-blue-500 transition text-sm font-medium"
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-            />
-          </div>
-
-          <div className="flex items-center gap-3 bg-slate-50 border border-slate-200 px-3 py-2 rounded-xl shrink-0">
-            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1">
-              <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
-              Фильтр по дате документа:
-            </span>
-            <input
-              type="date"
-              className="bg-white border border-slate-200 rounded-lg p-1.5 text-xs font-bold text-slate-700 outline-none focus:ring-1 focus:ring-blue-500"
-              value={dateFilter}
-              onChange={e => setDateFilter(e.target.value)}
-            />
-            {dateFilter && (
-              <button onClick={() => setDateFilter('')} className="text-xs text-red-500 font-bold hover:underline">Сброс</button>
-            )}
-          </div>
-        </div>
-
-        {/* СПИСОК КАРТОЧЕК ДОКУМЕНТОВ */}
-        {loading ? (
-          <div className="flex flex-col items-center justify-center py-20 text-slate-400 font-medium space-y-2">
-            <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-            <p className="text-xs animate-pulse font-bold uppercase tracking-widest text-slate-400">Считывание базы данных Supabase...</p>
-          </div>
-        ) : documents.length === 0 ? (
-          <div className="text-center py-16 bg-white border border-slate-200 rounded-2xl shadow-sm max-w-xl mx-auto p-6 flex flex-col items-center">
-            <div className="p-3 bg-slate-100 rounded-full text-slate-400 mb-3">
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0a2 2 0 01-2 2H6a2 2 0 01-2-2m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"/></svg>
-            </div>
-            <h4 className="font-bold text-slate-700 mb-1">Документы отсутствуют</h4>
-            <p className="text-xs text-slate-400">В выбранной вкладке или по заданным критериям поиска записей не обнаружено.</p>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {documents.map(doc => (
-              <div
-                key={doc.id}
-                onClick={() => openDocDetails(doc)}
-                className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition duration-150 cursor-pointer flex flex-wrap items-center justify-between gap-4"
+        <main className="max-w-7xl mx-auto p-4 sm:p-6">
+          
+          {/* ВКЛАДКИ В ОДИН РЯД С ГОРИЗОНТАЛЬНЫМ СКРОЛЛОМ НА МОБИЛКАХ */}
+          <div className="flex flex-nowrap overflow-x-auto no-scrollbar bg-slate-200/60 p-1 rounded-xl mb-5 shadow-inner gap-1 whitespace-nowrap">
+            {[
+              { id: 'new', label: 'Новые акции', icon: <IconNew /> },
+              { id: 'processed', label: 'Оформленные', icon: <IconProcessed /> },
+              { id: 'completed', label: 'Завершенные', icon: <IconCompleted /> },
+              { id: 'archive', label: 'Архив акций', icon: <IconArchive /> }
+            ].map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => { setCurrentTab(tab.id); setDateFilter(''); }}
+                className={`flex items-center justify-center gap-2 py-2.5 px-4 font-bold text-xs sm:text-sm rounded-lg transition-all flex-1 min-w-[135px] ${currentTab === tab.id ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-900'}`}
               >
-                <div className="space-y-1.5 flex-1 min-w-[280px]">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="bg-blue-600 text-white text-[10px] font-black px-2 py-0.5 rounded uppercase tracking-wider shadow-sm">
-                      {doc.promo_number || 'АКЦИЯ / ПЕРЕОЦЕНКА'}
-                    </span>
-                    <span className="bg-slate-100 text-slate-600 text-xs font-bold px-2 py-0.5 rounded">{doc.dept}</span>
-                  </div>
-                  
-                  <h3 className="font-extrabold text-slate-800 text-base leading-snug">{doc.file_name}</h3>
-                  
-                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
-                    <span className="flex items-center gap-1">
-                      📅 Период действия в документе: <strong className="text-slate-700">{doc.period_start || '?'} — {doc.period_end || '?'}</strong>
-                    </span>
-                  </div>
-
-                  {/* ИНФОРМАЦИОННЫЕ ТЕГИ ОТВЕТСТВЕННЫХ ЛИЦ ИЗ ТАБЕЛЯ */}
-                  {(doc.processed_by || doc.completed_by) && (
-                    <div className="pt-2 flex flex-wrap gap-2 border-t border-slate-100 mt-2">
-                      {doc.processed_by && (
-                        <span className="text-[11px] text-amber-700 bg-amber-50 px-2 py-1 rounded font-medium">
-                          ✍️ <b>Оформил:</b> {doc.processed_by.full_name}
-                        </span>
-                      )}
-                      {doc.completed_by && (
-                        <span className="text-[11px] text-green-700 bg-green-50 px-2 py-1 rounded font-medium">
-                          🏷️ <b>Ценники обновил:</b> {doc.completed_by.full_name}
-                        </span>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                {/* ИНТЕРАКТИВНЫЕ КНОПКИ ДЕЙСТВИЙ */}
-                <div onClick={e => e.stopPropagation()} className="shrink-0">
-                  {currentTab === 'new' && (
-                    <button
-                      onClick={() => setConfirmModal({ show: true, type: 'process', docId: doc.id })}
-                      className="bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-xs px-4 py-2.5 rounded-xl shadow-md shadow-blue-600/10 transition"
-                    >
-                      Оформить
-                    </button>
-                  )}
-                  {currentTab === 'completed' && (
-                    <button
-                      onClick={() => setConfirmModal({ show: true, type: 'archive', docId: doc.id })}
-                      className="bg-green-600 hover:bg-green-700 text-white font-extrabold text-xs px-4 py-2.5 rounded-xl shadow-md shadow-green-600/10 transition"
-                    >
-                      Ценники обновлены
-                    </button>
-                  )}
-                </div>
-              </div>
+                {tab.icon}
+                {tab.label}
+              </button>
             ))}
           </div>
-        )}
-      </main>
 
-      {/* МОДАЛЬНОЕ ОКНО ДЕТАЛИЗАЦИИ ДОКУМЕНТА */}
+          {/* АДАПТИВНАЯ СЕТКА ПОИСКА И ФИЛЬТРА (НИЧЕГО НЕ ВЫХОДИТ ЗА РАМКИ) */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
+            <div className="relative sm:col-span-2 w-full">
+              <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400"><IconSearch /></span>
+              <input
+                type="text"
+                placeholder="Поиск по номеру или названию..."
+                className="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-base font-medium shadow-sm"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+              />
+            </div>
+
+            <div className="flex items-center bg-white border border-slate-200 px-3 py-2 rounded-xl shadow-sm w-full overflow-hidden">
+              <span className="text-slate-400 mr-2 shrink-0"><IconCalendar /></span>
+              <input
+                type="date"
+                className="bg-transparent border-none text-base font-bold text-slate-700 outline-none w-full"
+                value={dateFilter}
+                onChange={e => setDateFilter(e.target.value)}
+              />
+              {dateFilter && (
+                <button onClick={() => setDateFilter('')} className="text-xs text-red-500 font-bold ml-2 shrink-0">✕</button>
+              )}
+            </div>
+          </div>
+
+          {/* КОМПАКТНЫЙ СПИСОК КАРТОЧЕК БЕЗ КНОПОК */}
+          {loading ? (
+            <div className="text-center py-12 text-slate-400 font-bold text-xs tracking-wider animate-pulse">ЗАГРУЗКА ДАННЫХ...</div>
+          ) : documents.length === 0 ? (
+            <div className="text-center py-12 bg-white border rounded-xl text-xs text-slate-400 font-medium">Список пуст</div>
+          ) : (
+            <div className="space-y-2">
+              {documents.map(doc => (
+                <div
+                  key={doc.id}
+                  onClick={() => openDocDetails(doc)}
+                  className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs hover:border-slate-300 transition cursor-pointer flex items-center justify-between gap-4"
+                >
+                  <div className="space-y-1 min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="bg-slate-100 text-slate-700 text-[10px] font-bold px-1.5 py-0.5 rounded border">
+                        {doc.promo_number || 'ПРАЙС'}
+                      </span>
+                      <span className="text-[10px] text-slate-400 font-medium">{doc.dept}</span>
+                    </div>
+                    
+                    <h3 className="font-bold text-slate-800 text-sm truncate">{doc.file_name}</h3>
+                    
+                    {/* СТРОГОЕ ОТОБРАЖЕНИЕ СРОКОВ ИЗ САМОГО ДОКУМЕНТА */}
+                    <p className="text-[11px] text-slate-500">
+                      Сроки в документе: <span className="font-semibold text-slate-700">{doc.period_start ? doc.period_start.split('-').reverse().join('.') : '?'} — {doc.period_end ? doc.period_end.split('-').reverse().join('.') : '?'}</span>
+                    </p>
+
+                    {(doc.processed_by || doc.completed_by) && (
+                      <div className="flex flex-wrap gap-x-3 text-[10px] text-slate-400 pt-1 border-t border-slate-50 mt-1">
+                        {doc.processed_by && <span>✍️ {doc.processed_by.full_name}</span>}
+                        {doc.completed_by && <span>🏷️ {doc.completed_by.full_name}</span>}
+                      </div>
+                    )}
+                  </div>
+                  
+                  <div className="text-slate-300 shrink-0">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7"/></svg>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </main>
+      </div>
+
+      {/* ФУТЕР — ТУТ ТЕПЕРЬ СПРЯТАНА КНОПКА ВЫХОДА */}
+      <footer className="py-6 text-center bg-transparent shrink-0">
+        <button onClick={handleLogout} className="text-xs text-slate-300 hover:text-slate-500 transition underline tracking-wide">
+          Выйти из системы табеля
+        </button>
+      </footer>
+
+      {/* МОДАЛЬНОЕ ОКНО (КНОПКА ДЕЙСТВИЯ ТЕПЕРЬ ВНУТРИ) */}
       {selectedDoc && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-40 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-5xl w-full h-[85vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-40 flex items-center justify-center p-2 sm:p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-5xl w-full h-[90vh] sm:h-[85vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-100">
             
-            {/* Название модалки */}
-            <div className="p-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
-              <div>
-                <span className="text-[10px] font-black text-blue-600 bg-blue-100 border border-blue-200 px-2 py-0.5 rounded uppercase tracking-wider">{selectedDoc.promo_number || 'Документ'}</span>
-                <h2 className="text-base font-black text-slate-800 mt-1">{selectedDoc.file_name}</h2>
+            <div className="p-3.5 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
+              <div className="min-w-0 flex-1 pr-4">
+                <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200 uppercase tracking-wider">{selectedDoc.promo_number || 'Документ'}</span>
+                <h2 className="text-sm font-bold text-slate-900 mt-1 truncate">{selectedDoc.file_name}</h2>
               </div>
-              <button onClick={() => setSelectedDoc(null)} className="text-slate-400 hover:text-slate-600 p-2 font-bold text-lg transition">✕</button>
+              <button onClick={() => setSelectedDoc(null)} className="text-slate-400 hover:text-slate-600 p-1"><IconClose /></button>
             </div>
 
-            {/* Внутренние разделы/вкладки внутри модалки */}
-            <div className="flex border-b border-slate-200 text-xs sm:text-sm bg-slate-100 font-bold text-slate-500">
-              <button onClick={() => setModalTab('in_stock')} className={`flex-1 py-3 text-center transition ${modalTab === 'in_stock' ? 'bg-white text-blue-600 border-b-2 border-blue-600' : 'hover:text-slate-800'}`}>📋 В наличии ({docItems.filter(i=>i.is_in_stock).length})</button>
-              <button onClick={() => setModalTab('all')} className={`flex-1 py-3 text-center transition ${modalTab === 'all' ? 'bg-white text-blue-600 border-b-2 border-blue-600' : 'hover:text-slate-800'}`}>🌐 Все товары ({docItems.length})</button>
-              <button onClick={() => setModalTab('source')} className={`flex-1 py-3 text-center transition ${modalTab === 'source' ? 'bg-white text-blue-600 border-b-2 border-blue-600' : 'hover:text-slate-800'}`}>📄 Исходный документ</button>
+            <div className="flex border-b border-slate-200 text-xs bg-slate-100 font-bold text-slate-500 whitespace-nowrap overflow-x-auto">
+              <button onClick={() => setModalTab('in_stock')} className={`flex-1 py-3 text-center ${modalTab === 'in_stock' ? 'bg-white text-blue-600 border-b-2 border-blue-600' : ''}`}>📋 В наличии ({docItems.filter(i=>i.is_in_stock).length})</button>
+              <button onClick={() => setModalTab('all')} className={`flex-1 py-3 text-center ${modalTab === 'all' ? 'bg-white text-blue-600 border-b-2 border-blue-600' : ''}`}>🌐 Все ({docItems.length})</button>
+              <button onClick={() => setModalTab('source')} className={`flex-1 py-3 text-center ${modalTab === 'source' ? 'bg-white text-blue-600 border-b-2 border-blue-600' : ''}`}>📄 Исходный документ</button>
             </div>
 
-            {/* Разделы 1 и 2 содержат в начале поле поиска */}
             {modalTab !== 'source' && (
-              <div className="p-3 border-b border-slate-100 bg-white">
+              <div className="p-2 border-b bg-white">
                 <input
                   type="text"
-                  placeholder="Введите наименование товара для фильтрации внутри таблицы..."
-                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:ring-2 focus:ring-blue-500 text-xs sm:text-sm font-medium"
+                  placeholder="Поиск товара по наименованию..."
+                  className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:bg-white focus:ring-2 focus:ring-blue-500 text-base font-medium"
                   value={itemSearch}
                   onChange={e => setItemSearch(e.target.value)}
                 />
               </div>
             )}
 
-            {/* Содержимое вкладок модалки */}
-            <div className="flex-1 overflow-y-auto p-4 bg-slate-50">
+            <div className="flex-1 overflow-y-auto p-3 bg-slate-50">
               {modalTab === 'source' ? (
-                <iframe src={selectedDoc.file_url} width="100%" height="100%" className="border border-slate-200 rounded-xl bg-white" title="Просмотр исходного файла" />
+                <iframe src={selectedDoc.file_url} width="100%" height="100%" className="border rounded-lg bg-white" title="Doc" />
               ) : filteredItems.length === 0 ? (
-                <div className="text-center py-12 text-slate-400 text-xs font-semibold uppercase tracking-wider">Товары не найдены</div>
+                <div className="text-center py-12 text-slate-400 text-xs font-bold uppercase">Ничего не найдено</div>
               ) : (
-                <div className="overflow-hidden border border-slate-200 bg-white rounded-xl shadow-sm">
+                <div className="overflow-hidden border border-slate-200 bg-white rounded-lg shadow-xs">
                   <table className="w-full text-left border-collapse text-xs sm:text-sm">
                     <thead>
-                      <tr className="bg-slate-100 border-b border-slate-200 text-slate-500 uppercase text-[10px] tracking-wider font-bold">
-                        <th className="p-3">Изменение</th>
-                        <th className="p-3">Наименование товара из документа</th>
-                        <th className="p-3 text-right">Цена</th>
+                      <tr className="bg-slate-100 border-b text-slate-500 uppercase text-[10px] font-bold">
+                        <th className="p-2.5">Статус</th>
+                        <th className="p-2.5">Наименование</th>
+                        <th className="p-2.5 text-right">Цена</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {filteredItems.map(item => (
                         <tr key={item.id} className="hover:bg-slate-50 transition">
-                          <td className="p-3 whitespace-nowrap">
-                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${getRowStyle(item.change_type)}`}>
-                              {item.change_type === 'green' ? 'Добавлен' : item.change_type === 'red' ? 'Удален' : item.change_type === 'yellow' ? 'Новая цена' : 'Базовый'}
+                          <td className="p-2.5">
+                            <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold border ${getRowStyle(item.change_type)}`}>
+                              {item.change_type === 'green' ? 'Добавлен' : item.change_type === 'red' ? 'Удален' : item.change_type === 'yellow' ? 'Цена' : 'База'}
                             </span>
                           </td>
-                          <td className="p-3 font-semibold text-slate-700">{item.raw_name}</td>
-                          <td className="p-3 text-right font-black text-slate-900 whitespace-nowrap">{item.price || '—'}</td>
+                          <td className="p-2.5 font-medium text-slate-700">{item.raw_name}</td>
+                          <td className="p-2.5 text-right font-bold text-slate-900 whitespace-nowrap">{item.price || '—'}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -486,36 +416,33 @@ export default function App() {
               )}
             </div>
 
-            {/* Нижний подвал модалки */}
-            <div className="p-4 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-2 shrink-0">
-              <button onClick={() => setSelectedDoc(null)} className="px-4 py-2 border border-slate-200 rounded-xl text-xs font-bold bg-white text-slate-600 hover:bg-slate-100 transition">Закрыть окно</button>
+            {/* КНОПКИ ДЕЙСТВИЙ ТЕПЕРЬ ОФИЦИАЛЬНО НАХОДЯТСЯ ЗДЕСЬ */}
+            <div className="p-3 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-2 shrink-0">
+              <button onClick={() => setSelectedDoc(null)} className="px-4 py-2 border rounded-xl text-xs font-bold bg-white text-slate-600 hover:bg-slate-100">Закрыть</button>
               {currentTab === 'new' && (
-                <button onClick={() => setConfirmModal({ show: true, type: 'process', docId: selectedDoc.id })} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-black rounded-xl shadow-md shadow-blue-600/10">Оформить акцию</button>
+                <button onClick={() => setConfirmModal({ show: true, type: 'process', docId: selectedDoc.id })} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-md">Оформить акцию</button>
               )}
               {currentTab === 'completed' && (
-                <button onClick={() => setConfirmModal({ show: true, type: 'archive', docId: selectedDoc.id })} className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-xs font-black rounded-xl shadow-md shadow-green-600/10">Обновление ценников выполнено</button>
+                <button onClick={() => setConfirmModal({ show: true, type: 'archive', docId: selectedDoc.id })} className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-xs font-bold rounded-xl shadow-md">Ценники обновлены</button>
               )}
             </div>
           </div>
         </div>
       )}
 
-      {/* ПОДТВЕРЖДАЮЩЕЕ ВСПЛЫВАЮЩЕЕ ОКОШКО (CONFIRM MODAL) */}
+      {/* ПОДТВЕРЖДАЮЩАЯ ВСПЛЫВАЮЩАЯ МОДАЛКА */}
       {confirmModal.show && (
-        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-fade-in">
-          <div className="bg-white p-6 rounded-2xl max-w-sm w-full shadow-2xl border border-slate-100 text-center animate-in fade-in zoom-in-95 duration-150">
-            <div className="w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3 bg-slate-100 text-2xl">
-              {confirmModal.type === 'process' ? '📥' : '✅'}
-            </div>
-            <h3 className="text-base font-black text-slate-900 mb-1">Требуется подтверждение</h3>
-            <p className="text-xs text-slate-400 mb-6 leading-relaxed">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white p-5 rounded-xl max-w-sm w-full shadow-2xl text-center animate-in fade-in zoom-in-95 duration-100">
+            <h3 className="text-sm font-bold text-slate-900 mb-1">Требуется подтверждение</h3>
+            <p className="text-xs text-slate-400 mb-5 leading-relaxed">
               {confirmModal.type === 'process' 
-                ? 'Вы подтверждаете, что берете в оформление данную промо-акцию/переоценку? Она будет закреплена за вашим ФИО в табеле.' 
-                : 'Вы подтверждаете, что завершенные ценники обновлены на витринах магазина? Данные отправятся в архив.'}
+                ? 'Вы подтверждаете оформление данной промо-акции? Документ закрепится за вашим ФИО.' 
+                : 'Вы подтверждаете, что ценники на витринах обновлены? Документ переместится в архив.'}
             </p>
             <div className="flex gap-2">
-              <button onClick={() => setConfirmModal({ show: false, type: '', docId: null })} className="px-4 py-2.5 border border-slate-200 rounded-xl font-bold text-xs text-slate-500 hover:bg-slate-100 flex-1 transition">Отмена</button>
-              <button onClick={executeStatusChange} className={`px-4 py-2.5 text-white font-black text-xs rounded-xl flex-1 transition shadow-sm ${confirmModal.type === 'process' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-green-600 hover:bg-green-700'}`}>Подтвердить</button>
+              <button onClick={() => setConfirmModal({ show: false, type: '', docId: null })} className="px-4 py-2 border rounded-xl font-bold text-xs text-slate-500 hover:bg-slate-100 flex-1">Отмена</button>
+              <button onClick={executeStatusChange} className={`px-4 py-2 text-white font-bold text-xs rounded-xl flex-1 ${confirmModal.type === 'process' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-green-600 hover:bg-green-700'}`}>Подтвердить</button>
             </div>
           </div>
         </div>
