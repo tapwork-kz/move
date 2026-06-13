@@ -97,7 +97,7 @@ export default function App() {
       // Ролевой фильтр: Админ видит всё / Сотрудник только свой отдел (dept)
       const isAdmin = user.role === 'Директор' || user.role === 'Супервайзер';
       if (!isAdmin) {
-        query = query.eq('dept', user.dept);
+        query = query.or(`dept.eq."${user.dept}",dept.eq."#Другое"`);
       } else if (selectedDept) {
         query = query.eq('dept', selectedDept);
       }
