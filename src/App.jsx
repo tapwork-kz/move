@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from './supabaseClient';
 
-// === КОМПАКТНЫЕ MATERIAL DESIGN SVG ИКОНКИ ===
+// === СТРОГИЕ MATERIAL DESIGN SVG ИКОНКИ (БЕЗ ЭМОДЗИ) ===
 const IconLogin = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 7a2 2 0 012 2v6a2 2 0 01-2 2H9a2 2 0 01-2-2V9a2 2 0 012-2m6 0V5a2 2 0 00-2-2H9a2 2 0 00-2 2v2m6 0h-6M12 11v4m-2-2h4"/></svg>;
 const IconNew = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0a2 2 0 01-2 2H6a2 2 0 01-2-2m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"/></svg>;
 const IconProcessed = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>;
@@ -66,9 +66,8 @@ export default function App() {
     return () => window.removeEventListener('focus', handleWindowFocus);
   }, [currentTab, selectedDept, searchQuery, dateFilter, user]);
 
-  // Проверка: есть ли товар в наличии в документе
   const hasStock = (doc) => {
-    if (!doc.document_items || doc.document_items.length === 0) return true;
+    if (!doc?.document_items || doc.document_items.length === 0) return true;
     return doc.document_items.some(item => item.is_in_stock === true);
   };
 
@@ -87,10 +86,11 @@ export default function App() {
     return false;
   };
 
+  // Мгновенный и безопасный расчет бейджей на клиенте
   const updateTabCounters = async () => {
     if (!user) return;
     try {
-      let query = supabase.from('documents').select('status, dept, file_name, promo_number, document_items(price, is_in_stock)');
+      let query = supabase.from('documents').select('status, dept, file_name, promo_number, period_end, document_items(price, is_in_stock)');
       if (user.role !== 'Директор' && user.role !== 'Супервайзер') {
         query = query.in('dept', [user.dept, '#Другое']);
       } else if (selectedDept) {
@@ -99,14 +99,22 @@ export default function App() {
 
       const { data } = await query;
       if (data) {
+        const todayStr = new Date().toISOString().split('T')[0];
         const counts = { new: 0, processed: 0, completed: 0, gifts: 0, archive: 0 };
+        
         data.forEach(doc => {
+          let computedStatus = doc.status;
+          if (doc.period_end && doc.period_end < todayStr) {
+            if (doc.status === 'new' && !hasStock(doc)) computedStatus = 'archive';
+            else if (doc.status === 'processed') computedStatus = 'completed';
+          }
+
           if (isGiftDocument(doc)) {
             counts.gifts++;
-          } else if (doc.status === 'new' && !hasStock(doc)) {
-            counts.processed++; // Сразу улетает счетчиком во вкладку Оформленные
-          } else if (counts[doc.status] !== undefined) {
-            counts[doc.status]++;
+          } else if (computedStatus === 'new' && !hasStock(doc)) {
+            counts.processed++; 
+          } else if (counts[computedStatus] !== undefined) {
+            counts[computedStatus]++;
           }
         });
         setTabCounts(counts);
@@ -114,22 +122,16 @@ export default function App() {
     } catch (err) { console.error(err); }
   };
 
-  // ВЕРНУЛИ НАУЧНЫЕ СВАЙПЫ ПО ВКЛАДКАМ
-  const handleTouchStart = (e) => {
-    setTouchStart(e.targetTouches[0].clientX);
-  };
-
+  // НАДЁЖНЫЕ НА ТИВНЫЕ СВАЙПЫ
+  const handleTouchStart = (e) => setTouchStart(e.targetTouches[0].clientX);
   const handleTouchEnd = (e) => {
     if (!touchStart) return;
     const touchEnd = e.changedTouches[0].clientX;
     const diff = touchStart - touchEnd;
     const currentIdx = tabOrder.indexOf(currentTab);
 
-    if (diff > 70 && currentIdx < tabOrder.length - 1) {
-      setCurrentTab(tabOrder[currentIdx + 1]); 
-    } else if (diff < -70 && currentIdx > 0) {
-      setCurrentTab(tabOrder[currentIdx - 1]); 
-    }
+    if (diff > 70 && currentIdx < tabOrder.length - 1) setCurrentTab(tabOrder[currentIdx + 1]);
+    else if (diff < -70 && currentIdx > 0) setCurrentTab(tabOrder[currentIdx - 1]);
     setTouchStart(null);
   };
 
@@ -153,6 +155,7 @@ export default function App() {
     localStorage.removeItem('promo_app_user');
   };
 
+  // Изолированная от циклов функция подгрузки документов
   const fetchDocuments = async () => {
     if (!user) return;
     setLoading(true);
@@ -170,41 +173,33 @@ export default function App() {
         query = query.eq('dept', selectedDept);
       }
 
-      const todayStr = new Date().toISOString().split('T')[0];
       const { data, error } = await query.order('created_at', { ascending: false });
       if (error) throw error;
 
+      const todayStr = new Date().toISOString().split('T')[0];
       let rawDocs = data || [];
 
-      // Проверка автоархивации просроченных документов БЕЗ наличия
-      const expiredNoStockIds = rawDocs.filter(doc => doc.status === 'new' && !hasStock(doc) && doc.period_end && doc.period_end < todayStr).map(d => d.id);
-      if (expiredNoStockIds.length > 0) {
-        await supabase.from('documents').update({ status: 'archive' }).in('id', expiredNoStockIds);
-        fetchDocuments();
-        return;
-      }
+      // Безопасный динамический маппинг статусов (без циклических перезаписей в БД)
+      let processed = rawDocs.map(doc => {
+        let s = doc.status;
+        if (doc.period_end && doc.period_end < todayStr) {
+          if (doc.status === 'new' && !hasStock(doc)) s = 'archive';
+          else if (doc.status === 'processed') s = 'completed';
+        }
+        return { ...doc, computedStatus: s };
+      });
 
-      // Обычная автопроверка просрочки для оформленных акций
-      const expiredProcessed = rawDocs.filter(doc => doc.status === 'processed' && doc.period_end && doc.period_end < todayStr);
-      if (expiredProcessed.length > 0) {
-        const expiredIds = expiredProcessed.map(d => d.id);
-        await supabase.from('documents').update({ status: 'completed' }).in('id', expiredIds);
-        fetchDocuments();
-        return;
-      }
-
-      // Распределение документов по вкладкам с учетом логики "Нет в наличии"
       let finalDocs = [];
       if (currentTab === 'gifts') {
-        finalDocs = rawDocs.filter(doc => isGiftDocument(doc));
+        finalDocs = processed.filter(doc => isGiftDocument(doc));
       } else if (currentTab === 'new') {
-        finalDocs = rawDocs.filter(doc => doc.status === 'new' && hasStock(doc) && !isGiftDocument(doc));
+        finalDocs = processed.filter(doc => doc.computedStatus === 'new' && hasStock(doc) && !isGiftDocument(doc));
       } else if (currentTab === 'processed') {
-        finalDocs = rawDocs.filter(doc => ((doc.status === 'processed') || (doc.status === 'new' && !hasStock(doc))) && !isGiftDocument(doc));
+        finalDocs = processed.filter(doc => ((doc.computedStatus === 'processed') || (doc.computedStatus === 'new' && !hasStock(doc))) && !isGiftDocument(doc));
       } else if (currentTab === 'completed') {
-        finalDocs = rawDocs.filter(doc => doc.status === 'completed' && !isGiftDocument(doc));
+        finalDocs = processed.filter(doc => doc.computedStatus === 'completed' && !isGiftDocument(doc));
       } else if (currentTab === 'archive') {
-        finalDocs = rawDocs.filter(doc => doc.status === 'archive' && !isGiftDocument(doc));
+        finalDocs = processed.filter(doc => doc.computedStatus === 'archive' && !isGiftDocument(doc));
       }
 
       setDocuments(finalDocs);
@@ -222,32 +217,24 @@ export default function App() {
     } catch (err) { console.error(err.message); }
   };
 
-  const executeStatusChange = async () => {
-    const { type, docId } = confirmModal;
-    const updatePayload = {};
-    if (type === 'process') {
-      updatePayload.status = 'processed';
-      updatePayload.processed_by_iin = user.iin;
-      updatePayload.processed_at = new Date().toISOString();
-    } else if (type === 'archive') {
-      updatePayload.status = 'archive';
-      updatePayload.completed_by_iin = user.iin;
-      updatePayload.completed_at = new Date().toISOString();
-    }
-    try {
-      const { error } = await supabase.from('documents').update(updatePayload).eq('id', docId);
-      if (error) throw error;
-      setConfirmModal({ show: false, type: '', docId: null });
-      if (selectedDoc) setSelectedDoc(null);
-      fetchDocuments();
-    } catch (err) { alert(err.message); }
-  };
-
   const formatCardDate = (isoString) => {
     if (!isoString) return '';
     const d = new Date(isoString);
     return d.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
   };
+
+  // Безопасное извлечение объектов пользователей (защита от падения)
+  const getUserFullName = (field) => {
+    if (!field) return null;
+    if (Array.isArray(field)) return field[0]?.full_name || null;
+    return field.full_name || null;
+  };
+
+  const filteredItems = docItems.filter(item => {
+    const matchesText = item.raw_name ? item.raw_name.toLowerCase().includes(itemSearch.toLowerCase()) : false;
+    if (modalTab === 'in_stock') return matchesText && item.is_in_stock;
+    return matchesText;
+  });
 
   const getRowStyle = (type) => {
     switch (type) {
@@ -258,6 +245,31 @@ export default function App() {
     }
   };
 
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-slate-900 dark:bg-slate-950 flex items-center justify-center p-4 transition-all duration-500">
+        <form onSubmit={handleLogin} className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-xl max-w-sm w-full border dark:border-slate-800 transition-all duration-500">
+          <div className="flex flex-col items-center mb-5">
+            <div className="p-2.5 bg-blue-100 dark:bg-blue-950 text-blue-600 dark:text-blue-400 rounded-xl mb-2"><IconLogin /></div>
+            <h2 className="text-lg font-bold text-slate-800 dark:text-slate-100">Авторизация Табель</h2>
+          </div>
+          {authError && <div className="mb-3 p-2.5 bg-red-50 dark:bg-red-950/50 text-red-600 dark:text-red-400 text-xs font-semibold rounded-xl border border-red-200 dark:border-red-900">{authError}</div>}
+          <div className="space-y-3 mb-5">
+            <div>
+              <label className="block text-[11px] font-bold uppercase text-slate-400 tracking-wider mb-1">ИИН</label>
+              <input type="text" required placeholder="Введите ваш ИИН" className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none text-base dark:text-white" value={authForm.iin} onChange={e => setAuthForm({ ...authForm, iin: e.target.value })} />
+            </div>
+            <div>
+              <label className="block text-[11px] font-bold uppercase text-slate-400 tracking-wider mb-1">Пароль</label>
+              <input type="password" required placeholder="••••••••" className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none text-base dark:text-white" value={authForm.password} onChange={e => setAuthForm({ ...authForm, password: e.target.value })} />
+            </div>
+          </div>
+          <button type="submit" disabled={authLoading} className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-xl font-bold transition text-sm">Войти</button>
+        </form>
+      </div>
+    );
+  }
+
   return (
     <div 
       onTouchStart={handleTouchStart}
@@ -265,8 +277,8 @@ export default function App() {
       className="w-full max-w-full overflow-hidden min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 flex flex-col justify-between transition-all duration-500 ease-in-out select-none"
     >
       <div className="w-full">
-        {/* ХЕДЕР С ПОЛНОЙ ПОДДЕРЖКОЙ ТЕМНОЙ ТЕМЫ */}
-        <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 sticky top-0 z-20 px-4 py-2.5 flex items-center justify-between gap-4 shadow-xs transition-colors duration-500">
+        {/* ХЕДЕР: Исправлено залипание темы (0.5с плавная синхронная смена оттенка) */}
+        <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 sticky top-0 z-20 px-4 py-2.5 flex items-center justify-between gap-4 shadow-xs transition-colors duration-500 ease-in-out">
           <div className="flex items-center gap-2">
             <div className="bg-blue-600 text-white w-6 h-6 rounded-md flex items-center justify-center font-bold text-xs">PM</div>
             <div>
@@ -279,7 +291,7 @@ export default function App() {
             </div>
           </div>
           {(user?.role === 'Директор' || user?.role === 'Супервайзер') && (
-            <div className="flex items-center gap-1 bg-amber-50 dark:bg-slate-800 border border-amber-200 dark:border-slate-700 px-1.5 py-0.5 rounded-lg text-[10px]">
+            <div className="flex items-center gap-1 bg-amber-50 dark:bg-slate-800 border border-amber-200 dark:border-slate-700 px-1.5 py-0.5 rounded-lg text-[10px] transition-colors duration-500">
               <IconAdmin />
               <select className="bg-transparent border-none font-bold text-slate-700 dark:text-slate-200 outline-none p-0 text-[10px]" value={selectedDept} onChange={e => setSelectedDept(e.target.value)}>
                 <option value="">Все</option>
@@ -289,11 +301,9 @@ export default function App() {
           )}
         </header>
 
-        {/* ГЛАВНЫЙ СТРОГИЙ КОНТЕНТ С ПЛАВНЫМИ ПЕРЕХОДАМИ 0.5 СЕКУНД */}
         <main className="w-full p-2.5 max-w-3xl mx-auto space-y-2.5 transition-all duration-500 ease-in-out">
-          
-          {/* СЕТКА ТАБОВ: Обтекание с внешним контуром исправлено пиксель в пиксель */}
-          <div className="grid grid-cols-5 bg-slate-200/70 dark:bg-slate-800/60 p-1 rounded-xl shadow-inner gap-0.5 border border-slate-300/10">
+          {/* СЕТКА ТАБОВ: Обтекание внешним контуром сбалансировано до пикселя */}
+          <div className="grid grid-cols-5 bg-slate-200/70 dark:bg-slate-800/60 p-1 rounded-xl shadow-inner gap-0.5 border border-slate-300/10 transition-colors duration-500">
             {[
               { id: 'new', label: 'Акции', icon: <IconNew />, count: tabCounts.new },
               { id: 'processed', label: 'Оформленные', icon: <IconProcessed />, count: tabCounts.processed },
@@ -304,7 +314,7 @@ export default function App() {
               <button
                 key={tab.id}
                 onClick={() => { setCurrentTab(tab.id); setDateFilter(''); }}
-                className={`relative flex flex-col items-center justify-center pt-2.5 pb-2 rounded-lg transition-all duration-500 ${currentTab === tab.id ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs' : 'text-slate-500 dark:text-slate-400'}`}
+                className={`relative flex flex-col items-center justify-center pt-2.5 pb-2 rounded-lg transition-all duration-500 ease-in-out ${currentTab === tab.id ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs' : 'text-slate-500 dark:text-slate-400'}`}
               >
                 {tab.count > 0 && (
                   <span className="absolute top-0.5 right-0.5 bg-red-500 text-white text-[8px] font-black h-3.5 min-w-[14px] px-0.5 rounded-full flex items-center justify-center border border-white dark:border-slate-950 scale-90">
@@ -323,12 +333,12 @@ export default function App() {
               <input
                 type="text"
                 placeholder="Поиск документа..."
-                className="w-full pl-7 pr-2 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg outline-none text-xs font-medium dark:text-white shadow-2xs"
+                className="w-full pl-7 pr-2 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg outline-none text-xs font-medium dark:text-white shadow-2xs transition-colors duration-500"
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
               />
             </div>
-            <div className="flex items-center justify-center bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 w-8 h-8 rounded-lg shrink-0 relative shadow-2xs">
+            <div className="flex items-center justify-center bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 w-8 h-8 rounded-lg shrink-0 relative shadow-2xs transition-colors duration-500">
               <span className={dateFilter ? 'text-blue-500' : 'text-slate-400'}><IconCalendar /></span>
               <input type="date" className="absolute inset-0 opacity-0 cursor-pointer" value={dateFilter} onChange={e => setDateFilter(e.target.value)} />
               {dateFilter && (
@@ -337,25 +347,24 @@ export default function App() {
             </div>
           </div>
 
-          {/* КОНТЕНТНЫЙ СПИСОК С КИНЕТИЧЕСКИМ СТИЛЕМ СКРОЛЛИНГА В ПРИТЫК */}
           {loading ? (
             <div className="text-center py-10 text-slate-400 dark:text-slate-600 font-medium text-xs tracking-wider animate-pulse">ОБРАБОТКА ДАННЫХ...</div>
           ) : documents.length === 0 ? (
-            <div className="text-center py-8 bg-white dark:bg-slate-900 border dark:border-slate-800 rounded-xl text-xs text-slate-400 font-medium">Список пуст</div>
+            <div className="text-center py-8 bg-white dark:bg-slate-900 border dark:border-slate-800 rounded-xl text-xs text-slate-400 font-medium transition-colors duration-500">Список пуст</div>
           ) : (
             <div className="space-y-1.5 overflow-y-auto overscroll-y-contain style-bounce-scroll pb-4">
               {documents.map(doc => (
                 <div
                   key={doc.id}
                   onClick={() => openDocDetails(doc)}
-                  className="bg-white dark:bg-slate-900 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 active:scale-[0.99] transition-all duration-300 shadow-2xs relative"
+                  className="bg-white dark:bg-slate-900 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 active:scale-[0.99] transition-all duration-500 ease-in-out shadow-2xs relative"
                 >
                   <div className="space-y-0.5 min-w-0 flex-1 pr-16">
                     <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[8px] font-bold px-1 rounded border dark:border-slate-700">
+                      <span className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[8px] font-bold px-1 rounded border dark:border-slate-700 transition-colors duration-500">
                         {doc.promo_number || 'АКЦИЯ'}
                       </span>
-                      {/* ИСПРАВЛЕНО: Бейджи убраны с вкладки Оформленные */}
+                      {/* УБРАНЫ БЕЙДЖИ С ВКЛАДКИ ОФОРМЛЕННЫЕ */}
                       {isGiftDocument(doc) && currentTab !== 'processed' && (
                         <span className="bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 text-[8px] font-black px-1 rounded border border-purple-200 dark:border-purple-900">
                           Подарок / Комплект
@@ -363,16 +372,16 @@ export default function App() {
                       )}
                       <span className="text-[9px] text-slate-400 font-medium">{doc.dept}</span>
                     </div>
-                    <h3 className="font-normal text-slate-700 dark:text-slate-200 text-xs sm:text-sm truncate">{doc.file_name}</h3>
+                    <h3 className="font-normal text-slate-700 dark:text-slate-200 text-xs sm:text-sm truncate transition-colors duration-500">{doc.file_name}</h3>
                     
-                    {/* КОРРЕКТНЫЙ ИНФОРМАЦИОННЫЙ ПОДПИСЬ ОТВЕТСТВЕННЫХ */}
                     <div className="flex flex-wrap gap-x-2 text-[9px] pt-0.5">
+                      {/* ДИНАМИЧЕСКИЙ ПОДПИСЬ ДЛЯ ДЕФИЦИТНОГО ТОВАРА */}
                       {!hasStock(doc) && doc.status === 'new' ? (
-                        <span className="text-amber-600 dark:text-amber-400 font-bold bg-amber-50 dark:bg-amber-950/30 px-1 rounded">Нет в наличии</span>
+                        <span className="text-amber-600 dark:text-amber-400 font-bold bg-amber-50 dark:bg-amber-950/30 px-1 rounded transition-colors duration-500">Нет в наличии</span>
                       ) : (
                         <div className="text-slate-400 dark:text-slate-500 flex gap-2">
-                          {doc.processed_by && <span>Оформил: {doc.processed_by.full_name}</span>}
-                          {doc.completed_by && <span>Закрыл: {doc.completed_by.full_name}</span>}
+                          {getUserFullName(doc.processed_by) && <span>Оформил: {getUserFullName(doc.processed_by)}</span>}
+                          {getUserFullName(doc.completed_by) && <span>Закрыл: {getUserFullName(doc.completed_by)}</span>}
                         </div>
                       )}
                     </div>
@@ -396,11 +405,11 @@ export default function App() {
         <button onClick={handleLogout} className="text-[10px] text-slate-300 dark:text-slate-700 hover:text-slate-400 transition underline">Выйти из системы табеля</button>
       </footer>
 
-      {/* ВСПЛЫВАЮЩЕЕ ОКНО — МАКСИМАЛЬНОЕ ТЕЛО ДЛЯ МАСШТАБА ТАБЛИЦ WORD */}
+      {/* ВСПЛЫВАЮЩЕЕ ОКНО НА ВЕСЬ ЭКРАН С ПЛАВНЫМИ ПЕРЕХОДАМИ */}
       {selectedDoc && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-40 flex items-center justify-center p-1 sm:p-2">
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-40 flex items-center justify-center p-1 sm:p-2 transition-all duration-500 ease-in-out">
           <div className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl max-w-7xl w-full h-[92vh] flex flex-col overflow-hidden border dark:border-slate-800 transition-all duration-500 ease-in-out">
-            <div className="p-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 flex items-center justify-between">
+            <div className="p-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 flex items-center justify-between transition-colors duration-500">
               <div className="min-w-0 flex-1 pr-3">
                 <span className="text-[9px] font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/50 px-1 py-0.2 rounded border border-blue-200 uppercase tracking-wider">{selectedDoc.promo_number || 'Документ'}</span>
                 <h2 className="text-xs font-bold text-slate-900 dark:text-slate-100 mt-0.5 truncate">{selectedDoc.file_name}</h2>
@@ -436,7 +445,7 @@ export default function App() {
 
             <div className="flex-1 overflow-auto p-1.5 bg-slate-50 dark:bg-slate-950/20">
               {modalTab === 'source' ? (
-                /* ИСПРАВЛЕНО: Полное открытие Word фрейма от тела, зазоры сведены к минимуму (p-0 m-0) */
+                /* ПОЛНОЕ ТЕЛО ДЛЯ ПРОСМОТРА БЕЗ КРИВЫХ ОТСТУПОВ (p-0 m-0) */
                 <div className="w-full h-full overflow-auto rounded-lg bg-white border border-slate-200 dark:border-slate-800 p-0 m-0" style={{ WebkitOverflowScrolling: 'touch' }}>
                   {selectedDoc.file_name?.match(/\.(jpeg|jpg|gif|png|webp)$/i) ? (
                     <div className="flex items-center justify-center p-2 min-h-full bg-slate-900 rounded-lg">
@@ -452,11 +461,11 @@ export default function App() {
                 <div className="overflow-x-auto border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-lg shadow-2xs">
                   <table className="w-full text-left border-collapse text-xs">
                     <thead>
-                      {/* ИСПРАВЛЕНО: Заголовки изменены на Статус, Наименование, Промо */}
+                      {/* ИСПРАВЛЕНО: Заголовки Статус, Наименование, Промо */}
                       <tr className="bg-slate-100 dark:bg-slate-800 border-b dark:border-slate-700 text-slate-500 dark:text-slate-400 uppercase text-[9px] font-bold">
                         <th className="p-2">Статус</th>
                         <th className="p-2">Наименование</th>
-                        {/* Выводится цена из столбца T */}
+                        {/* Сюда выводится точная цена из столбца T */}
                         <th className="p-2 text-right">Промо</th>
                       </tr>
                     </thead>
@@ -468,7 +477,7 @@ export default function App() {
                               {item.change_type === 'green' ? 'Добавлен' : item.change_type === 'red' ? 'Удален' : item.change_type === 'yellow' ? 'Цена' : 'База'}
                             </span>
                           </td>
-                          {/* Отображается то, что стоит по факту в документе */}
+                          {/* Номенклатура отображает то, что стоит по факту в исходнике */}
                           <td className="p-2 font-normal text-slate-700 dark:text-slate-300 break-words">{item.raw_name}</td>
                           <td className="p-2 text-right font-bold text-slate-900 dark:text-slate-100 whitespace-nowrap">{item.price || '—'}</td>
                         </tr>
@@ -492,7 +501,7 @@ export default function App() {
         </div>
       )}
 
-      {/* ОКНО ПОДТВЕРЖДЕНИЯ */}
+      {/* МОДАЛКА ОЖИДАНИЯ */}
       {confirmModal.show && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
           <div className="bg-white dark:bg-slate-900 p-5 rounded-xl max-w-xs w-full shadow-2xl text-center border dark:border-slate-800">
@@ -508,7 +517,7 @@ export default function App() {
         </div>
       )}
       
-      {/* КИНЕТИЧЕСКИЕ И НАТИВНЫЕ ЭЛАСТИЧНЫЕ СТИЛИ СКРОЛЛА И СВАЙПОВ */}
+      {/* КИНЕТИЧЕСКИЕ И КИНЕМАТОГРАФИЧНЫЕ ЭЛАСТИЧНЫЕ СТИЛИ СКРОЛЛА ПРИ УПОРЕ */}
       <style>{`
         .style-bounce-scroll {
           scroll-behavior: smooth;
