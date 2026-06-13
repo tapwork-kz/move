@@ -38,12 +38,10 @@ export default function App() {
   const [itemSearch, setItemSearch] = useState('');
   const [confirmModal, setConfirmModal] = useState({ show: false, type: '', docId: null });
 
-  // Переменная для фиксации начала свайпа
   const [touchStart, setTouchStart] = useState(null);
 
   const departments = ["#Цифра 🟠", "#МБТ 🟡", "#КБТ 🔵", "#Другое"];
 
-  // 1. Принудительное обновление данных при фокусе/возврате в приложение
   useEffect(() => {
     const savedUser = localStorage.getItem('promo_app_user');
     if (savedUser) {
@@ -63,7 +61,6 @@ export default function App() {
     return () => window.removeEventListener('focus', handleWindowFocus);
   }, [currentTab, selectedDept]);
 
-  // 2. Очистка старого списка при переходе, чтобы избежать "залипания" надписи
   useEffect(() => {
     if (user) {
       setDocuments([]); 
@@ -75,8 +72,7 @@ export default function App() {
   const updateTabCounters = async () => {
     try {
       let query = supabase.from('documents').select('status, dept');
-      const isAdmin = user.role === 'Директор' || user.role === 'Супервайзер';
-      if (!isAdmin) {
+      if (user.role !== 'Директор' && user.role !== 'Супервайзер') {
         query = query.or(`dept.eq."${user.dept}",dept.eq."#Другое"`);
       } else if (selectedDept) {
         query = query.eq('dept', selectedDept);
@@ -95,7 +91,6 @@ export default function App() {
     }
   };
 
-  // 3. Обработка нативных свайпов (влево/вправо) для смены экранов
   const handleTouchStart = (e) => {
     setTouchStart(e.targetTouches[0].clientX);
   };
@@ -107,9 +102,9 @@ export default function App() {
     const currentIdx = tabOrder.indexOf(currentTab);
 
     if (diff > 70 && currentIdx < tabOrder.length - 1) {
-      setCurrentTab(tabOrder[currentIdx + 1]); // Свайп влево -> Следующий экран
+      setCurrentTab(tabOrder[currentIdx + 1]); 
     } else if (diff < -70 && currentIdx > 0) {
-      setCurrentTab(tabOrder[currentIdx - 1]); // Свайп вправо -> Предыдущий экран
+      setCurrentTab(tabOrder[currentIdx - 1]); 
     }
     setTouchStart(null);
   };
@@ -160,8 +155,7 @@ export default function App() {
         completed_by:users!completed_by_iin(full_name)
       `);
 
-      const isAdmin = user.role === 'Директор' || user.role === 'Супервайзер';
-      if (!isAdmin) {
+      if (user.role !== 'Директор' && user.role !== 'Супервайзер') {
         query = query.or(`dept.eq."${user.dept}",dept.eq."#Другое"`);
       } else if (selectedDept) {
         query = query.eq('dept', selectedDept);
@@ -242,10 +236,15 @@ export default function App() {
     }
   };
 
-  // 4. Проверка на подарок/комплект по имени файла
   const isGiftDocument = (doc) => {
-    const nameLower = doc.file_name.toLowerCase();
+    const nameLower = doc.file_name ? doc.file_name.toLowerCase() : '';
     return nameLower.includes('подарок') || nameLower.includes('комплект');
+  };
+
+  // Безопасное извлечение короткого имени (Защита от падения)
+  const getShortName = (fullName) => {
+    if (!fullName) return 'Сотрудник';
+    return fullName.split(' ')[0];
   };
 
   return (
@@ -255,22 +254,22 @@ export default function App() {
       className="w-full max-w-full overflow-hidden min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 flex flex-col justify-between transition-colors duration-150 select-none"
     >
       <div className="w-full">
-        {/* ХЕДЕР С ПОЛНОЙ ПОДДЕРЖКОЙ СМЕНЫ ТЕМ БЕЗ ЗАЛИПАНИЯ СТАРЫХ ЦВЕТОВ */}
-        <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 sticky top-0 z-20 px-4 py-2 flex items-center justify-between gap-4 shadow-xs transition-colors duration-150">
+        {/* Исправлен фон шапки в темной теме — добавлен класс dark:bg-slate-900 */}
+        <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 sticky top-0 z-20 px-4 py-2.5 flex items-center justify-between gap-4 shadow-xs transition-colors duration-150">
           <div className="flex items-center gap-2">
             <div className="bg-blue-600 text-white w-6 h-6 rounded-md flex items-center justify-center font-bold text-xs">PM</div>
             <div>
               <h1 className="text-xs font-bold text-slate-900 dark:text-slate-100 leading-none">Мониторинг</h1>
-              <div className="flex items-center gap-1 text-[10px] text-slate-400 mt-0.5">
-                <span>{user.full_name.split(' ')[0]}</span>
+              <div className="flex items-center gap-1 text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">
+                <span>{getShortName(user?.full_name)}</span>
                 <span>•</span>
-                <span>{user.dept}</span>
+                <span>{user?.dept}</span>
               </div>
             </div>
           </div>
 
           {(user.role === 'Директор' || user.role === 'Супервайзер') && (
-            <div className="flex items-center gap-1 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 px-1.5 py-0.5 rounded-lg text-[10px]">
+            <div className="flex items-center gap-1 bg-amber-50 dark:bg-slate-800 border border-amber-200 dark:border-slate-700 px-1.5 py-0.5 rounded-lg text-[10px]">
               <IconAdmin />
               <select className="bg-transparent border-none font-bold text-slate-700 dark:text-slate-200 outline-none p-0 text-[10px]" value={selectedDept} onChange={e => setSelectedDept(e.target.value)}>
                 <option value="">Все</option>
@@ -281,8 +280,6 @@ export default function App() {
         </header>
 
         <main className="w-full p-2.5 max-w-3xl mx-auto space-y-2.5">
-          
-          {/* ИСПРАВЛЕНЫ ОТСТУПЫ ТАБОВ: Рамка обтекает активный элемент идеально по контуру */}
           <div className="grid grid-cols-4 bg-slate-200/70 dark:bg-slate-800/60 p-0.5 rounded-xl shadow-inner gap-0.5 border border-slate-300/10">
             {[
               { id: 'new', label: 'Акции', icon: <IconNew />, count: tabCounts.new },
@@ -306,7 +303,6 @@ export default function App() {
             ))}
           </div>
 
-          {/* КОМПАКТНЫЙ МИНИ-ПОИСК И СБРОС КАЛЕНДАРЯ */}
           <div className="flex items-center gap-1.5">
             <div className="relative flex-1">
               <span className="absolute inset-y-0 left-0 flex items-center pl-2.5 text-slate-400"><IconSearch /></span>
@@ -328,7 +324,6 @@ export default function App() {
             </div>
           </div>
 
-          {/* НАДПИСЬ ИСПРАВЛЕНА: Пока идет загрузка — "Список пуст" никогда не покажется */}
           {loading ? (
             <div className="text-center py-10 text-slate-400 dark:text-slate-600 font-medium text-xs tracking-wider animate-pulse">ОБРАБОТКА ДАННЫХ...</div>
           ) : documents.length === 0 ? (
@@ -353,14 +348,18 @@ export default function App() {
                       )}
                       <span className="text-[9px] text-slate-400 font-medium">{doc.dept}</span>
                     </div>
-                    {/* font-normal — убрана вся жирность наименований в списках */}
                     <h3 className="font-normal text-slate-700 dark:text-slate-200 text-xs sm:text-sm truncate">{doc.file_name}</h3>
+                    {(doc.processed_by || doc.completed_by) && (
+                      <div className="flex flex-wrap gap-x-2 text-[9px] text-slate-400 dark:text-slate-500 pt-0.5">
+                        {doc.processed_by && <span>✍️ {getShortName(doc.processed_by?.full_name)}</span>}
+                        {doc.completed_by && <span>🏷️ {getShortName(doc.completed_by?.full_name)}</span>}
+                      </div>
+                    )}
                   </div>
                   <div className="text-slate-300 dark:text-slate-700 shrink-0"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7"/></svg></div>
                 </div>
               ))}
               
-              {/* ПОДТЯГИВАНИЕ СТРАНИЦЫ ДО КОНЦА (Эффект завершения контента) */}
               <div className="text-center pt-5 pb-3 text-slate-300 dark:text-slate-800 text-[10px] font-medium tracking-widest select-none">
                 • КОНЕЦ СПИСКА •
               </div>
@@ -373,19 +372,18 @@ export default function App() {
         <button onClick={handleLogout} className="text-[10px] text-slate-300 dark:text-slate-700 hover:text-slate-400 transition underline">Выйти из системы табеля</button>
       </footer>
 
-      {/* ВСПЛЫВАЮЩЕЕ ОКНО С ИСПРАВЛЕННЫМ ВНУТРЕННИМ СКРОЛЛОМ ДОКУМЕНТА */}
       {selectedDoc && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-40 flex items-center justify-center p-2">
-          <div className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl max-w-2xl w-full h-[85vh] flex flex-col overflow-hidden border dark:border-slate-800">
+          {/* Исправлен класс анимации — удалено "animate-in静态" */}
+          <div className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl max-w-2xl w-full h-[85vh] flex flex-col overflow-hidden border dark:border-slate-800 animate-in fade-in duration-100">
             <div className="p-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 flex items-center justify-between">
               <div className="min-w-0 flex-1 pr-3">
-                <span className="text-[9px] font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/50 px-1 py-0.2 rounded border border-blue-200 dark:border-blue-900 uppercase tracking-wider">{selectedDoc.promo_number || 'Документ'}</span>
+                <span className="text-[9px] font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/50 px-1 py-0.2 rounded border border-blue-200 uppercase tracking-wider">{selectedDoc.promo_number || 'Документ'}</span>
                 <h2 className="text-xs font-bold text-slate-900 dark:text-slate-100 mt-0.5 truncate">{selectedDoc.file_name}</h2>
               </div>
               <button onClick={() => setSelectedDoc(null)} className="text-slate-400 hover:text-slate-600 p-1"><IconClose /></button>
             </div>
 
-            {/* ПОДВКЛАДКИ МОДАЛКИ: СТРОГО В ОДИН РЯД, ГАРАНТИРОВАННО БЕЗ СКРОЛЛА */}
             <div className="p-1.5 bg-slate-50 dark:bg-slate-950/40 border-b dark:border-slate-800 shrink-0">
               <div className="grid grid-cols-3 bg-slate-200/60 dark:bg-slate-800/60 p-0.5 rounded-lg text-slate-500 font-medium w-full">
                 <button onClick={() => setModalTab('in_stock')} className={`flex items-center justify-center gap-1 py-1.5 text-[10px] sm:text-xs rounded-md transition-all ${modalTab === 'in_stock' ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-2xs' : ''}`}>
@@ -412,7 +410,6 @@ export default function App() {
               </div>
             )}
 
-            {/* НАСТОЯЩИЙ ИЗОЛИРОВАННЫЙ СКРОЛЛ КОНТЕНТА ВНУТРИ ОКНА */}
             <div className="flex-1 overflow-y-auto overflow-x-hidden p-2 bg-slate-50 dark:bg-slate-950/20 -webkit-overflow-scrolling-touch">
               {modalTab === 'source' ? (
                 <div className="w-full h-full overflow-y-auto rounded-lg bg-white border border-slate-200 dark:border-slate-800" style={{ WebkitOverflowScrolling: 'touch' }}>
@@ -461,7 +458,6 @@ export default function App() {
         </div>
       )}
 
-      {/* ОКОШКО ПОДТВЕРЖДЕНИЯ */}
       {confirmModal.show && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
           <div className="bg-white dark:bg-slate-900 p-5 rounded-xl max-w-xs w-full shadow-2xl text-center border dark:border-slate-800">
