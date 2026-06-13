@@ -1,12 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from './supabaseClient';
 
-// === СТРОГИЕ MATERIAL DESIGN SVG ИКОНКИ (БЕЗ ЭМОДЗИ) ===
+// === КОМПАКТНЫЕ MATERIAL DESIGN SVG ИКОНКИ ===
 const IconLogin = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 7a2 2 0 012 2v6a2 2 0 01-2 2H9a2 2 0 01-2-2V9a2 2 0 012-2m6 0V5a2 2 0 00-2-2H9a2 2 0 00-2 2v2m6 0h-6M12 11v4m-2-2h4"/></svg>;
 const IconNew = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0a2 2 0 01-2 2H6a2 2 0 01-2-2m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"/></svg>;
 const IconProcessed = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>;
 const IconCompleted = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>;
-const IconCompletedTab = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg>;
 const IconArchive = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/></svg>;
 const IconSearch = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>;
 const IconCalendar = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>;
@@ -16,9 +15,7 @@ const IconStock = () => <svg className="w-4 h-4" fill="none" stroke="currentColo
 const IconAll = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 10h16M4 14h16M4 18h16"/></svg>;
 const IconFile = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>;
 const IconGift = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v13m0-13V6a2 2 0 112 2h-2zm0 0V6a2 2 0 10-2 2h2zm0 0H4v13a2 2 0 002 2h14a2 2 0 002-2V8h-8z"/></svg>;
-const IconTime = () => <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>;
 
-// Порядок вкладок (теперь их официального пять)
 const tabOrder = ['new', 'processed', 'completed', 'gifts', 'archive'];
 
 export default function App() {
@@ -69,7 +66,12 @@ export default function App() {
     return () => window.removeEventListener('focus', handleWindowFocus);
   }, [currentTab, selectedDept, searchQuery, dateFilter, user]);
 
-  // Проверка на подарок или медиа-файл
+  // Проверка: есть ли товар в наличии в документе
+  const hasStock = (doc) => {
+    if (!doc.document_items || doc.document_items.length === 0) return true;
+    return doc.document_items.some(item => item.is_in_stock === true);
+  };
+
   const isGiftDocument = (doc) => {
     const nameLower = doc.file_name ? doc.file_name.toLowerCase() : '';
     const isImageFile = nameLower.match(/\.(jpeg|jpg|gif|png|webp)$/i);
@@ -88,9 +90,7 @@ export default function App() {
   const updateTabCounters = async () => {
     if (!user) return;
     try {
-      let query = supabase.from('documents').select('status, dept, file_name, promo_number, document_items(price)');
-      
-      // ИСПРАВЛЕНО: Безопасный массив IN вместо кривого .or()
+      let query = supabase.from('documents').select('status, dept, file_name, promo_number, document_items(price, is_in_stock)');
       if (user.role !== 'Директор' && user.role !== 'Супервайзер') {
         query = query.in('dept', [user.dept, '#Другое']);
       } else if (selectedDept) {
@@ -103,17 +103,18 @@ export default function App() {
         data.forEach(doc => {
           if (isGiftDocument(doc)) {
             counts.gifts++;
+          } else if (doc.status === 'new' && !hasStock(doc)) {
+            counts.processed++; // Сразу улетает счетчиком во вкладку Оформленные
           } else if (counts[doc.status] !== undefined) {
             counts[doc.status]++;
           }
         });
         setTabCounts(counts);
       }
-    } catch (err) {
-      console.error(err);
-    }
+    } catch (err) { console.error(err); }
   };
 
+  // ВЕРНУЛИ НАУЧНЫЕ СВАЙПЫ ПО ВКЛАДКАМ
   const handleTouchStart = (e) => {
     setTouchStart(e.targetTouches[0].clientX);
   };
@@ -137,31 +138,14 @@ export default function App() {
     setAuthError('');
     setAuthLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('users')
-        .select('*')
-        .eq('iin', authForm.iin)
-        .eq('password', authForm.password)
-        .maybeSingle();
-
+      const { data, error } = await supabase.from('users').select('*').eq('iin', authForm.iin).eq('password', authForm.password).maybeSingle();
       if (error) throw error;
-      if (!data) {
-        setAuthError('Неверный ИИН или пароль.');
-        return;
-      }
-      if (data.login_status !== true) {
-        setAuthError('Вход запрещен. Аккаунт деактивирован.');
-        return;
-      }
-
+      if (!data) { setAuthError('Неверный ИИН или пароль.'); return; }
+      if (data.login_status !== true) { setAuthError('Вход запрещен.'); return; }
       setUser(data);
       setSelectedDept(data.role === 'Директор' || data.role === 'Супервайзер' ? '' : data.dept);
       localStorage.setItem('promo_app_user', JSON.stringify(data));
-    } catch (err) {
-      setAuthError('Ошибка: ' + err.message);
-    } finally {
-      setAuthLoading(false);
-    }
+    } catch (err) { setAuthError('Ошибка: ' + err.message); } finally { setAuthLoading(false); }
   };
 
   const handleLogout = () => {
@@ -177,57 +161,54 @@ export default function App() {
         *,
         processed_by:users!processed_by_iin(full_name),
         completed_by:users!completed_by_iin(full_name),
-        document_items(price)
+        document_items(price, is_in_stock)
       `);
 
-      // ИСПРАВЛЕНО: Замена .or() на строгий .in() исключает пропажу документов
       if (user.role !== 'Директор' && user.role !== 'Супервайзер') {
         query = query.in('dept', [user.dept, '#Другое']);
       } else if (selectedDept) {
         query = query.eq('dept', selectedDept);
       }
 
-      if (currentTab !== 'gifts') {
-        query = query.eq('status', currentTab);
-      }
-
-      if (searchQuery) {
-        query = query.or(`promo_number.ilike.%${searchQuery}%,file_name.ilike.%${searchQuery}%`);
-      }
-
-      if (dateFilter) {
-        query = query.lte('period_start', dateFilter).gte('period_end', dateFilter);
-      }
-
+      const todayStr = new Date().toISOString().split('T')[0];
       const { data, error } = await query.order('created_at', { ascending: false });
       if (error) throw error;
 
-      // Маршрутизация документов: Сортируем подарки отдельно от основных акций
-      let finalData = data || [];
+      let rawDocs = data || [];
+
+      // Проверка автоархивации просроченных документов БЕЗ наличия
+      const expiredNoStockIds = rawDocs.filter(doc => doc.status === 'new' && !hasStock(doc) && doc.period_end && doc.period_end < todayStr).map(d => d.id);
+      if (expiredNoStockIds.length > 0) {
+        await supabase.from('documents').update({ status: 'archive' }).in('id', expiredNoStockIds);
+        fetchDocuments();
+        return;
+      }
+
+      // Обычная автопроверка просрочки для оформленных акций
+      const expiredProcessed = rawDocs.filter(doc => doc.status === 'processed' && doc.period_end && doc.period_end < todayStr);
+      if (expiredProcessed.length > 0) {
+        const expiredIds = expiredProcessed.map(d => d.id);
+        await supabase.from('documents').update({ status: 'completed' }).in('id', expiredIds);
+        fetchDocuments();
+        return;
+      }
+
+      // Распределение документов по вкладкам с учетом логики "Нет в наличии"
+      let finalDocs = [];
       if (currentTab === 'gifts') {
-        finalData = finalData.filter(doc => isGiftDocument(doc));
-      } else {
-        finalData = finalData.filter(doc => !isGiftDocument(doc));
+        finalDocs = rawDocs.filter(doc => isGiftDocument(doc));
+      } else if (currentTab === 'new') {
+        finalDocs = rawDocs.filter(doc => doc.status === 'new' && hasStock(doc) && !isGiftDocument(doc));
+      } else if (currentTab === 'processed') {
+        finalDocs = rawDocs.filter(doc => ((doc.status === 'processed') || (doc.status === 'new' && !hasStock(doc))) && !isGiftDocument(doc));
+      } else if (currentTab === 'completed') {
+        finalDocs = rawDocs.filter(doc => doc.status === 'completed' && !isGiftDocument(doc));
+      } else if (currentTab === 'archive') {
+        finalDocs = rawDocs.filter(doc => doc.status === 'archive' && !isGiftDocument(doc));
       }
 
-      if (currentTab === 'processed') {
-        const todayStr = new Date().toISOString().split('T')[0];
-        const expiredDocs = finalData.filter(doc => doc.period_end && doc.period_end < todayStr);
-        
-        if (expiredDocs.length > 0) {
-          const expiredIds = expiredDocs.map(d => d.id);
-          await supabase.from('documents').update({ status: 'completed' }).in('id', expiredIds);
-          fetchDocuments();
-          return;
-        }
-      }
-
-      setDocuments(finalData);
-    } catch (err) {
-      console.error(err.message);
-    } finally {
-      setLoading(false);
-    }
+      setDocuments(finalDocs);
+    } catch (err) { console.error(err.message); } finally { setLoading(false); }
   };
 
   const openDocDetails = async (doc) => {
@@ -235,21 +216,15 @@ export default function App() {
     setModalTab('in_stock');
     setItemSearch('');
     try {
-      const { data, error } = await supabase
-        .from('document_items')
-        .select('*')
-        .eq('document_id', doc.id);
+      const { data, error } = await supabase.from('document_items').select('*').eq('document_id', doc.id);
       if (error) throw error;
       setDocItems(data || []);
-    } catch (err) {
-      console.error(err.message);
-    }
+    } catch (err) { console.error(err.message); }
   };
 
   const executeStatusChange = async () => {
     const { type, docId } = confirmModal;
     const updatePayload = {};
-
     if (type === 'process') {
       updatePayload.status = 'processed';
       updatePayload.processed_by_iin = user.iin;
@@ -259,17 +234,13 @@ export default function App() {
       updatePayload.completed_by_iin = user.iin;
       updatePayload.completed_at = new Date().toISOString();
     }
-
     try {
       const { error } = await supabase.from('documents').update(updatePayload).eq('id', docId);
       if (error) throw error;
-
       setConfirmModal({ show: false, type: '', docId: null });
       if (selectedDoc) setSelectedDoc(null);
       fetchDocuments();
-    } catch (err) {
-      alert(err.message);
-    }
+    } catch (err) { alert(err.message); }
   };
 
   const formatCardDate = (isoString) => {
@@ -277,14 +248,6 @@ export default function App() {
     const d = new Date(isoString);
     return d.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
   };
-
-  const filteredItems = docItems.filter(item => {
-    const matchesText = item.raw_name ? item.raw_name.toLowerCase().includes(itemSearch.toLowerCase()) : false;
-    if (modalTab === 'in_stock') {
-      return matchesText && item.is_in_stock;
-    }
-    return matchesText;
-  });
 
   const getRowStyle = (type) => {
     switch (type) {
@@ -295,48 +258,26 @@ export default function App() {
     }
   };
 
-  if (!user) {
-    return (
-      <div className="min-h-screen bg-slate-900 dark:bg-slate-950 flex items-center justify-center p-4">
-        <form onSubmit={handleLogin} className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-xl max-w-sm w-full border dark:border-slate-800">
-          <div className="flex flex-col items-center mb-5">
-            <div className="p-2.5 bg-blue-100 dark:bg-blue-950 text-blue-600 dark:text-blue-400 rounded-xl mb-2"><IconLogin /></div>
-            <h2 className="text-lg font-bold text-slate-800 dark:text-slate-100">Авторизация Табель</h2>
-          </div>
-          {authError && <div className="mb-3 p-2.5 bg-red-50 dark:bg-red-950/50 text-red-600 dark:text-red-400 text-xs font-semibold rounded-xl border border-red-200 dark:border-red-900">{authError}</div>}
-          <div className="space-y-3 mb-5">
-            <div>
-              <label className="block text-[11px] font-bold uppercase text-slate-400 tracking-wider mb-1">ИИН</label>
-              <input type="text" required placeholder="Введите ваш ИИН" className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none text-base dark:text-white" value={authForm.iin} onChange={e => setAuthForm({ ...authForm, iin: e.target.value })} />
-            </div>
-            <div>
-              <label className="block text-[11px] font-bold uppercase text-slate-400 tracking-wider mb-1">Пароль</label>
-              <input type="password" required placeholder="••••••••" className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none text-base dark:text-white" value={authForm.password} onChange={e => setAuthForm({ ...authForm, password: e.target.value })} />
-            </div>
-          </div>
-          <button type="submit" disabled={authLoading} className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-xl font-bold transition text-sm">Войти</button>
-        </form>
-      </div>
-    );
-  }
-
   return (
-    <div className="w-full max-w-full overflow-hidden min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 flex flex-col justify-between transition-colors duration-150 select-none">
+    <div 
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+      className="w-full max-w-full overflow-hidden min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 flex flex-col justify-between transition-all duration-500 ease-in-out select-none"
+    >
       <div className="w-full">
-        {/* ИСПРАВЛЕНО: Полноценная поддержка темной темы для шапки */}
-        <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 sticky top-0 z-20 px-4 py-2.5 flex items-center justify-between gap-4 shadow-xs transition-colors duration-150">
+        {/* ХЕДЕР С ПОЛНОЙ ПОДДЕРЖКОЙ ТЕМНОЙ ТЕМЫ */}
+        <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 sticky top-0 z-20 px-4 py-2.5 flex items-center justify-between gap-4 shadow-xs transition-colors duration-500">
           <div className="flex items-center gap-2">
             <div className="bg-blue-600 text-white w-6 h-6 rounded-md flex items-center justify-center font-bold text-xs">PM</div>
             <div>
               <h1 className="text-xs font-bold text-slate-900 dark:text-slate-100 leading-none">Мониторинг</h1>
               <div className="flex items-center gap-1 text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">
-                <span>{user?.full_name || 'Сотрудник'}</span>
+                <span>{user?.full_name}</span>
                 <span>•</span>
                 <span>{user?.dept}</span>
               </div>
             </div>
           </div>
-
           {(user?.role === 'Директор' || user?.role === 'Супервайзер') && (
             <div className="flex items-center gap-1 bg-amber-50 dark:bg-slate-800 border border-amber-200 dark:border-slate-700 px-1.5 py-0.5 rounded-lg text-[10px]">
               <IconAdmin />
@@ -348,21 +289,22 @@ export default function App() {
           )}
         </header>
 
-        <main className="w-full p-2.5 max-w-3xl mx-auto space-y-2.5">
+        {/* ГЛАВНЫЙ СТРОГИЙ КОНТЕНТ С ПЛАВНЫМИ ПЕРЕХОДАМИ 0.5 СЕКУНД */}
+        <main className="w-full p-2.5 max-w-3xl mx-auto space-y-2.5 transition-all duration-500 ease-in-out">
           
-          {/* СЕТКА ТАБОВ: Перестроена строго на 5 колонок без вылетов и зазоров на стыках */}
-          <div className="grid grid-cols-5 bg-slate-200/70 dark:bg-slate-800/60 p-0.5 rounded-xl shadow-inner gap-0.5 border border-slate-300/10 shrink-0">
+          {/* СЕТКА ТАБОВ: Обтекание с внешним контуром исправлено пиксель в пиксель */}
+          <div className="grid grid-cols-5 bg-slate-200/70 dark:bg-slate-800/60 p-1 rounded-xl shadow-inner gap-0.5 border border-slate-300/10">
             {[
               { id: 'new', label: 'Акции', icon: <IconNew />, count: tabCounts.new },
               { id: 'processed', label: 'Оформленные', icon: <IconProcessed />, count: tabCounts.processed },
-              { id: 'completed', label: 'Завершенные', icon: <IconCompletedTab />, count: tabCounts.completed },
+              { id: 'completed', label: 'Завершенные', icon: <IconCompleted />, count: tabCounts.completed },
               { id: 'gifts', label: 'Подарки', icon: <IconGift />, count: tabCounts.gifts },
               { id: 'archive', label: 'Архив', icon: <IconArchive />, count: tabCounts.archive }
             ].map(tab => (
               <button
                 key={tab.id}
                 onClick={() => { setCurrentTab(tab.id); setDateFilter(''); }}
-                className={`relative flex flex-col items-center justify-center pt-2 pb-1.5 rounded-lg transition-all ${currentTab === tab.id ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs' : 'text-slate-500 dark:text-slate-400'}`}
+                className={`relative flex flex-col items-center justify-center pt-2.5 pb-2 rounded-lg transition-all duration-500 ${currentTab === tab.id ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs' : 'text-slate-500 dark:text-slate-400'}`}
               >
                 {tab.count > 0 && (
                   <span className="absolute top-0.5 right-0.5 bg-red-500 text-white text-[8px] font-black h-3.5 min-w-[14px] px-0.5 rounded-full flex items-center justify-center border border-white dark:border-slate-950 scale-90">
@@ -386,7 +328,6 @@ export default function App() {
                 onChange={e => setSearchQuery(e.target.value)}
               />
             </div>
-
             <div className="flex items-center justify-center bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 w-8 h-8 rounded-lg shrink-0 relative shadow-2xs">
               <span className={dateFilter ? 'text-blue-500' : 'text-slate-400'}><IconCalendar /></span>
               <input type="date" className="absolute inset-0 opacity-0 cursor-pointer" value={dateFilter} onChange={e => setDateFilter(e.target.value)} />
@@ -396,49 +337,53 @@ export default function App() {
             </div>
           </div>
 
+          {/* КОНТЕНТНЫЙ СПИСОК С КИНЕТИЧЕСКИМ СТИЛЕМ СКРОЛЛИНГА В ПРИТЫК */}
           {loading ? (
             <div className="text-center py-10 text-slate-400 dark:text-slate-600 font-medium text-xs tracking-wider animate-pulse">ОБРАБОТКА ДАННЫХ...</div>
           ) : documents.length === 0 ? (
             <div className="text-center py-8 bg-white dark:bg-slate-900 border dark:border-slate-800 rounded-xl text-xs text-slate-400 font-medium">Список пуст</div>
           ) : (
-            <div className="space-y-1.5">
+            <div className="space-y-1.5 overflow-y-auto overscroll-y-contain style-bounce-scroll pb-4">
               {documents.map(doc => (
                 <div
                   key={doc.id}
                   onClick={() => openDocDetails(doc)}
-                  className="bg-white dark:bg-slate-900 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 active:bg-slate-100 dark:active:bg-slate-800 transition shadow-2xs relative"
+                  className="bg-white dark:bg-slate-900 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 active:scale-[0.99] transition-all duration-300 shadow-2xs relative"
                 >
                   <div className="space-y-0.5 min-w-0 flex-1 pr-16">
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <span className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[8px] font-bold px-1 rounded border dark:border-slate-700">
                         {doc.promo_number || 'АКЦИЯ'}
                       </span>
-                      {isGiftDocument(doc) && (
+                      {/* ИСПРАВЛЕНО: Бейджи убраны с вкладки Оформленные */}
+                      {isGiftDocument(doc) && currentTab !== 'processed' && (
                         <span className="bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 text-[8px] font-black px-1 rounded border border-purple-200 dark:border-purple-900">
                           Подарок / Комплект
                         </span>
                       )}
                       <span className="text-[9px] text-slate-400 font-medium">{doc.dept}</span>
                     </div>
-                    {/* Текст строго не жирный */}
                     <h3 className="font-normal text-slate-700 dark:text-slate-200 text-xs sm:text-sm truncate">{doc.file_name}</h3>
-                    {(doc.processed_by || doc.completed_by) && (
-                      <div className="flex flex-wrap gap-x-2 text-[9px] text-slate-400 dark:text-slate-500 pt-0.5">
-                        {/* Вывод ФИО полностью */}
-                        {doc.processed_by && <span>Оформил: {doc.processed_by.full_name}</span>}
-                        {doc.completed_by && <span>Закрыл: {doc.completed_by.full_name}</span>}
-                      </div>
-                    )}
+                    
+                    {/* КОРРЕКТНЫЙ ИНФОРМАЦИОННЫЙ ПОДПИСЬ ОТВЕТСТВЕННЫХ */}
+                    <div className="flex flex-wrap gap-x-2 text-[9px] pt-0.5">
+                      {!hasStock(doc) && doc.status === 'new' ? (
+                        <span className="text-amber-600 dark:text-amber-400 font-bold bg-amber-50 dark:bg-amber-950/30 px-1 rounded">Нет в наличии</span>
+                      ) : (
+                        <div className="text-slate-400 dark:text-slate-500 flex gap-2">
+                          {doc.processed_by && <span>Оформил: {doc.processed_by.full_name}</span>}
+                          {doc.completed_by && <span>Закрыл: {doc.completed_by.full_name}</span>}
+                        </div>
+                      )}
+                    </div>
                   </div>
 
-                  {/* ИСПРАВЛЕНО: Дата поступления в правом верхнем углу */}
-                  <div className="absolute top-2.5 right-2.5 flex items-center gap-1 text-[9px] text-slate-400 font-medium bg-slate-50 dark:bg-slate-800 px-1.5 py-0.5 rounded border dark:border-slate-700">
-                    <IconTime />
+                  {/* ИСПРАВЛЕНО: Убрана обводка и иконка у даты/времени в углу */}
+                  <div className="absolute top-2.5 right-2.5 text-[9px] text-slate-400 dark:text-slate-500 font-medium bg-transparent px-1 py-0.5">
                     <span>{formatCardDate(doc.created_at)}</span>
                   </div>
                 </div>
               ))}
-              
               <div className="text-center pt-5 pb-3 text-slate-300 dark:text-slate-800 text-[10px] font-medium tracking-widest select-none">
                 • КОНЕЦ СПИСКА •
               </div>
@@ -451,10 +396,10 @@ export default function App() {
         <button onClick={handleLogout} className="text-[10px] text-slate-300 dark:text-slate-700 hover:text-slate-400 transition underline">Выйти из системы табеля</button>
       </footer>
 
-      {/* МОДАЛЬНОЕ ОКНО — РАСШИРЕНО ДО max-w-6xl ЧТОБЫ ВМЕЩАЛАСЬ ВСЯ ТАБЛИЦА WORD */}
+      {/* ВСПЛЫВАЮЩЕЕ ОКНО — МАКСИМАЛЬНОЕ ТЕЛО ДЛЯ МАСШТАБА ТАБЛИЦ WORD */}
       {selectedDoc && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-40 flex items-center justify-center p-2">
-          <div className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl max-w-6xl w-full h-[88vh] flex flex-col overflow-hidden border dark:border-slate-800 animate-in fade-in duration-100">
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-40 flex items-center justify-center p-1 sm:p-2">
+          <div className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl max-w-7xl w-full h-[92vh] flex flex-col overflow-hidden border dark:border-slate-800 transition-all duration-500 ease-in-out">
             <div className="p-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 flex items-center justify-between">
               <div className="min-w-0 flex-1 pr-3">
                 <span className="text-[9px] font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/50 px-1 py-0.2 rounded border border-blue-200 uppercase tracking-wider">{selectedDoc.promo_number || 'Документ'}</span>
@@ -463,25 +408,25 @@ export default function App() {
               <button onClick={() => setSelectedDoc(null)} className="text-slate-400 hover:text-slate-600 p-1"><IconClose /></button>
             </div>
 
-            <div className="p-1.5 bg-slate-50 dark:bg-slate-950/40 border-b dark:border-slate-800 shrink-0">
+            <div className="p-1 bg-slate-50 dark:bg-slate-950/40 border-b dark:border-slate-800 shrink-0">
               <div className="grid grid-cols-3 bg-slate-200/60 dark:bg-slate-800/60 p-0.5 rounded-lg text-slate-500 font-medium w-full">
-                <button onClick={() => setModalTab('in_stock')} className={`flex items-center justify-center gap-1 py-1.5 text-[10px] sm:text-xs rounded-md transition-all ${modalTab === 'in_stock' ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-2xs' : ''}`}>
+                <button onClick={() => setModalTab('in_stock')} className={`flex items-center justify-center gap-1 py-1 text-[10px] sm:text-xs rounded-md transition-all ${modalTab === 'in_stock' ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-2xs' : ''}`}>
                   <IconStock /> В наличии ({docItems.filter(i=>i.is_in_stock).length})
                 </button>
-                <button onClick={() => setModalTab('all')} className={`flex items-center justify-center gap-1 py-1.5 text-[10px] sm:text-xs rounded-md transition-all ${modalTab === 'all' ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-2xs' : ''}`}>
+                <button onClick={() => setModalTab('all')} className={`flex items-center justify-center gap-1 py-1 text-[10px] sm:text-xs rounded-md transition-all ${modalTab === 'all' ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-2xs' : ''}`}>
                   <IconAll /> Все ({docItems.length})
                 </button>
-                <button onClick={() => setModalTab('source')} className={`flex items-center justify-center gap-1 py-1.5 text-[10px] sm:text-xs rounded-md transition-all ${modalTab === 'source' ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-2xs' : ''}`}>
+                <button onClick={() => setModalTab('source')} className={`flex items-center justify-center gap-1 py-1 text-[10px] sm:text-xs rounded-md transition-all ${modalTab === 'source' ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-2xs' : ''}`}>
                   <IconFile /> Документ
                 </button>
               </div>
             </div>
 
             {modalTab !== 'source' && (
-              <div className="p-2 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 shrink-0">
+              <div className="p-1.5 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 shrink-0">
                 <input
                   type="text"
-                  placeholder="Поиск товара..."
+                  placeholder="Поиск товара по спецификации..."
                   className="w-full p-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg outline-none text-xs font-medium dark:text-white"
                   value={itemSearch}
                   onChange={e => setItemSearch(e.target.value)}
@@ -489,38 +434,41 @@ export default function App() {
               </div>
             )}
 
-            <div className="flex-1 overflow-y-auto overflow-x-hidden p-2 bg-slate-50 dark:bg-slate-950/20 -webkit-overflow-scrolling-touch">
+            <div className="flex-1 overflow-auto p-1.5 bg-slate-50 dark:bg-slate-950/20">
               {modalTab === 'source' ? (
-                <div className="w-full h-full overflow-y-auto rounded-lg bg-white border border-slate-200 dark:border-slate-800" style={{ WebkitOverflowScrolling: 'touch' }}>
-                  {/* ИСПРАВЛЕНО: Если файл является картинкой — выводим тег img вместо iframe */}
+                /* ИСПРАВЛЕНО: Полное открытие Word фрейма от тела, зазоры сведены к минимуму (p-0 m-0) */
+                <div className="w-full h-full overflow-auto rounded-lg bg-white border border-slate-200 dark:border-slate-800 p-0 m-0" style={{ WebkitOverflowScrolling: 'touch' }}>
                   {selectedDoc.file_name?.match(/\.(jpeg|jpg|gif|png|webp)$/i) ? (
-                    <div className="flex items-center justify-center p-4 min-h-full bg-slate-900 rounded-lg">
-                      <img src={selectedDoc.file_url} className="max-w-full h-auto max-h-[60vh] object-contain rounded-lg shadow-md" alt="Вложение" />
+                    <div className="flex items-center justify-center p-2 min-h-full bg-slate-900 rounded-lg">
+                      <img src={selectedDoc.file_url} className="max-w-full h-auto max-h-[65vh] object-contain rounded-lg shadow-md" alt="Вложение" />
                     </div>
                   ) : (
-                    <iframe src={selectedDoc.file_url} width="100%" height="100%" className="w-full h-full min-h-[460px]" title="Doc" />
+                    <iframe src={selectedDoc.file_url} width="100%" height="100%" className="w-full h-full min-h-[500px] border-none p-0 m-0" title="Doc" />
                   )}
                 </div>
               ) : filteredItems.length === 0 ? (
                 <div className="text-center py-10 text-slate-400 text-xs font-bold uppercase">Ничего не найдено</div>
               ) : (
-                <div className="overflow-hidden border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-lg shadow-2xs">
+                <div className="overflow-x-auto border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-lg shadow-2xs">
                   <table className="w-full text-left border-collapse text-xs">
                     <thead>
+                      {/* ИСПРАВЛЕНО: Заголовки изменены на Статус, Наименование, Промо */}
                       <tr className="bg-slate-100 dark:bg-slate-800 border-b dark:border-slate-700 text-slate-500 dark:text-slate-400 uppercase text-[9px] font-bold">
                         <th className="p-2">Статус</th>
                         <th className="p-2">Наименование</th>
-                        <th className="p-2 text-right">Цена</th>
+                        {/* Выводится цена из столбца T */}
+                        <th className="p-2 text-right">Промо</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                       {filteredItems.map(item => (
                         <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition">
                           <td className="p-2">
-                            <span className={`px-1 py-0.2 rounded text-[9px] font-bold border ${getRowStyle(item.change_type)}`}>
+                            <span className={`px-1 py-0.2 rounded text-[8px] font-bold border ${getRowStyle(item.change_type)}`}>
                               {item.change_type === 'green' ? 'Добавлен' : item.change_type === 'red' ? 'Удален' : item.change_type === 'yellow' ? 'Цена' : 'База'}
                             </span>
                           </td>
+                          {/* Отображается то, что стоит по факту в документе */}
                           <td className="p-2 font-normal text-slate-700 dark:text-slate-300 break-words">{item.raw_name}</td>
                           <td className="p-2 text-right font-bold text-slate-900 dark:text-slate-100 whitespace-nowrap">{item.price || '—'}</td>
                         </tr>
@@ -531,9 +479,9 @@ export default function App() {
               )}
             </div>
 
-            <div className="p-2.5 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 flex items-center justify-end gap-1.5 shrink-0">
+            <div className="p-2 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 flex items-center justify-end gap-1.5 shrink-0">
               <button onClick={() => setSelectedDoc(null)} className="px-3 py-1.5 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-bold bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300">Закрыть</button>
-              {currentTab === 'new' && (
+              {currentTab === 'new' && hasStock(selectedDoc) && (
                 <button onClick={() => setConfirmModal({ show: true, type: 'process', docId: selectedDoc.id })} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg shadow-xs">Оформить акцию</button>
               )}
               {currentTab === 'completed' && (
@@ -544,7 +492,7 @@ export default function App() {
         </div>
       )}
 
-      {/* ОКОШКО ПОДТВЕРЖДЕНИЯ */}
+      {/* ОКНО ПОДТВЕРЖДЕНИЯ */}
       {confirmModal.show && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
           <div className="bg-white dark:bg-slate-900 p-5 rounded-xl max-w-xs w-full shadow-2xl text-center border dark:border-slate-800">
@@ -559,6 +507,17 @@ export default function App() {
           </div>
         </div>
       )}
+      
+      {/* КИНЕТИЧЕСКИЕ И НАТИВНЫЕ ЭЛАСТИЧНЫЕ СТИЛИ СКРОЛЛА И СВАЙПОВ */}
+      <style>{`
+        .style-bounce-scroll {
+          scroll-behavior: smooth;
+          -webkit-overflow-scrolling: touch;
+        }
+        .style-bounce-scroll:active {
+          overscroll-behavior-y: contain;
+        }
+      `}</style>
     </div>
   );
 }
