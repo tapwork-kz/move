@@ -42,16 +42,25 @@ export default function App() {
   const [touchStart, setTouchStart] = useState(null);
   const departments = ["#Цифра 🟠", "#МБТ 🟡", "#КБТ 🔵", "#Другое"];
 
+  // Исправленный блок инициализации авторизации
   useEffect(() => {
     const savedUser = localStorage.getItem('promo_app_user');
-    if (savedUser) {
-      const parsed = JSON.parse(savedUser);
-      setUser(parsed);
-      setSelectedDept(parsed.role === 'Директор' || parsed.role === 'Супервайзер' ? '' : parsed.dept);
+    if (savedUser && savedUser !== 'null' && savedUser !== 'undefined') {
+      try {
+        const parsed = JSON.parse(savedUser);
+        if (parsed && parsed.iin) { 
+          setUser(parsed);
+          setSelectedDept(parsed.role === 'Директор' || parsed.role === 'Супервайзер' ? '' : parsed.dept);
+          return;
+        }
+      } catch (e) {
+        console.error("Ошибка парсинга сессии:", e);
+      }
     }
+    localStorage.removeItem('promo_app_user');
+    setUser(null);
   }, []);
 
-  // 1. Принудительное мгновенное обновление при восстановлении фокуса/сна экрана
   useEffect(() => {
     if (!user) return;
     setDocuments([]); 
@@ -71,7 +80,6 @@ export default function App() {
     return doc.document_items.some(item => item.is_in_stock === true);
   };
 
-  // Мгновенный расчет бейджей на стороне клиента
   const updateTabCounters = async () => {
     if (!user) return;
     try {
@@ -107,7 +115,6 @@ export default function App() {
     } catch (err) { console.error(err); }
   };
 
-  // 2. ВЕРНУЛИ НАУЧНЫЕ СВАЙПЫ ПО ВКЛАДКАМ ПО ВСЕМ ПРАВИЛАМ
   const handleTouchStart = (e) => setTouchStart(e.targetTouches[0].clientX);
   const handleTouchEnd = (e) => {
     if (!touchStart) return;
@@ -240,6 +247,31 @@ export default function App() {
     return matchesText;
   });
 
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-slate-900 dark:bg-slate-950 flex items-center justify-center p-4 transition-all duration-500">
+        <form onSubmit={handleLogin} className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-xl max-w-sm w-full border dark:border-slate-800 transition-all duration-500">
+          <div className="flex flex-col items-center mb-5">
+            <div className="p-2.5 bg-blue-100 dark:bg-blue-950 text-blue-600 dark:text-blue-400 rounded-xl mb-2"><IconLogin /></div>
+            <h2 className="text-lg font-bold text-slate-800 dark:text-slate-100">Авторизация Табель</h2>
+          </div>
+          {authError && <div className="mb-3 p-2.5 bg-red-50 dark:bg-red-950/50 text-red-600 dark:text-red-400 text-xs font-semibold rounded-xl border border-red-200 dark:border-red-900">{authError}</div>}
+          <div className="space-y-3 mb-5">
+            <div>
+              <label className="block text-[11px] font-bold uppercase text-slate-400 tracking-wider mb-1">ИИН</label>
+              <input type="text" required placeholder="Введите ваш ИИН" className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none text-base dark:text-white" value={authForm.iin} onChange={e => setAuthForm({ ...authForm, iin: e.target.value })} />
+            </div>
+            <div>
+              <label className="block text-[11px] font-bold uppercase text-slate-400 tracking-wider mb-1">Пароль</label>
+              <input type="password" required placeholder="••••••••" className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none text-base dark:text-white" value={authForm.password} onChange={e => setAuthForm({ ...authForm, password: e.target.value })} />
+            </div>
+          </div>
+          <button type="submit" disabled={authLoading} className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-xl font-bold transition text-sm">Войти</button>
+        </form>
+      </div>
+    );
+  }
+
   return (
     <div 
       onTouchStart={handleTouchStart}
@@ -247,7 +279,6 @@ export default function App() {
       className="w-full max-w-full overflow-hidden min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 flex flex-col justify-between transition-all duration-500 ease-in-out select-none"
     >
       <div className="w-full">
-        {/* ХЕДЕР С ПОЛНОЙ ИНВЕРСИЕЙ ЦВЕТОВ 0.5 СЕКУНД */}
         <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 sticky top-0 z-20 px-4 py-2.5 flex items-center justify-between gap-4 shadow-xs transition-colors duration-500 ease-in-out">
           <div className="flex items-center gap-2">
             <div className="bg-blue-600 text-white w-6 h-6 rounded-md flex items-center justify-center font-bold text-xs">PM</div>
@@ -272,7 +303,6 @@ export default function App() {
         </header>
 
         <main className="w-full p-2.5 max-w-3xl mx-auto space-y-2.5 transition-all duration-500 ease-in-out">
-          {/* СЕТКА ТАБОВ С ПЛАВНЫМИ ПЕРЕХОДАМИ И ПРАВИЛЬНЫМ ОБТЕКАНИЕМ РАМКИ */}
           <div className="grid grid-cols-5 bg-slate-200/70 dark:bg-slate-800/60 p-1 rounded-xl shadow-inner gap-0.5 border border-slate-300/10 transition-colors duration-500">
             {[
               { id: 'new', label: 'Акции', icon: <IconNew />, count: tabCounts.new },
@@ -297,7 +327,6 @@ export default function App() {
             ))}
           </div>
 
-          {/* КОМПАКТНЫЙ ОДНОСТРОЧНЫЙ ПОИСК */}
           <div className="flex items-center gap-1.5">
             <div className="relative flex-1">
               <span className="absolute inset-y-0 left-0 flex items-center pl-2.5 text-slate-400"><IconSearch /></span>
@@ -318,7 +347,6 @@ export default function App() {
             </div>
           </div>
 
-          {/* НАДПИСЬ ИСПРАВЛЕНА: Пока идет загрузка — "Список пуст" никогда не покажется */}
           {loading ? (
             <div className="text-center py-10 text-slate-400 dark:text-slate-600 font-medium text-xs tracking-wider animate-pulse">ОБРАБОТКА ДАННЫХ...</div>
           ) : documents.length === 0 ? (
@@ -336,7 +364,6 @@ export default function App() {
                       <span className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[8px] font-bold px-1 rounded border dark:border-slate-700 transition-colors duration-500">
                         {doc.promo_number || 'АКЦИЯ'}
                       </span>
-                      {/* ИСПРАВЛЕНО: Бейджи убраны с вкладки Оформленные */}
                       {(doc.doc_type === 'gift' || doc.doc_type === 'media') && currentTab !== 'processed' && (
                         <span className="bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 text-[8px] font-black px-1 rounded border border-purple-200 dark:border-purple-900">
                           Подарок / Комплект
@@ -344,11 +371,9 @@ export default function App() {
                       )}
                       <span className="text-[9px] text-slate-400 font-medium">{doc.dept}</span>
                     </div>
-                    {/* Текст строго не жирный (font-normal) */}
                     <h3 className="font-normal text-slate-700 dark:text-slate-200 text-xs sm:text-sm truncate transition-colors duration-500">{doc.file_name}</h3>
                     
                     <div className="flex flex-wrap gap-x-2 text-[9px] pt-0.5">
-                      {/* ДИНАМИЧЕСКИЙ ПОДПИСЬ ДЛЯ ДЕФИЦИТНОГО ТОВАРА ЖЕЛТОВАТЫМ ЦВЕТОМ */}
                       {!hasStock(doc) && doc.status === 'new' ? (
                         <span className="text-amber-600 dark:text-amber-400 font-bold bg-amber-50 dark:bg-amber-950/30 px-1 rounded transition-colors duration-500">Нет в наличии</span>
                       ) : (
@@ -360,7 +385,6 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* ИСПРАВЛЕНО: Убрана обводка и иконка у даты/времени в углу */}
                   <div className="absolute top-2.5 right-2.5 text-[9px] text-slate-400 dark:text-slate-500 font-medium bg-transparent px-1 py-0.5">
                     <span>{formatCardDate(doc.created_at)}</span>
                   </div>
@@ -378,7 +402,6 @@ export default function App() {
         <button onClick={handleLogout} className="text-[10px] text-slate-300 dark:text-slate-700 hover:text-slate-400 transition underline">Выйти из системы табеля</button>
       </footer>
 
-      {/* МАКСИМАЛЬНОЕ ТЕЛО ВСПЛЫВАЮЩЕГО ОКНА ДЛЯ ТАБЛИЦ WORD (max-w-7xl) */}
       {selectedDoc && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-40 flex items-center justify-center p-1 sm:p-2 transition-all duration-500 ease-in-out">
           <div className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl max-w-7xl w-full h-[92vh] flex flex-col overflow-hidden border dark:border-slate-800 transition-all duration-500 ease-in-out">
@@ -418,7 +441,6 @@ export default function App() {
 
             <div className="flex-1 overflow-auto p-1.5 bg-slate-50 dark:bg-slate-950/20">
               {modalTab === 'source' ? (
-                /* ПОЛНОЕ ОТКРЫТИЕ ВОРД ИЗ ТЕЛА БЕЗ ОГРАНИЧЕНИЙ РАССТОЯНИЯ (p-0 m-0) */
                 <div className="w-full h-full overflow-auto rounded-lg bg-white border border-slate-200 dark:border-slate-800 p-0 m-0" style={{ WebkitOverflowScrolling: 'touch' }}>
                   {selectedDoc.doc_type === 'media' || selectedDoc.file_name?.match(/\.(jpeg|jpg|gif|png|webp)$/i) ? (
                     <div className="flex items-center justify-center p-2 min-h-full bg-slate-900 rounded-lg">
@@ -434,7 +456,6 @@ export default function App() {
                 <div className="overflow-x-auto border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-lg shadow-2xs">
                   <table className="w-full text-left border-collapse text-xs">
                     <thead>
-                      {/* ИСПРАВЛЕНО: Заголовки Статус, Наименование, Промо */}
                       <tr className="bg-slate-100 dark:bg-slate-800 border-b dark:border-slate-700 text-slate-500 dark:text-slate-400 uppercase text-[9px] font-bold">
                         <th className="p-2">Статус</th>
                         <th className="p-2">Наименование</th>
@@ -449,7 +470,6 @@ export default function App() {
                               {item.change_type === 'green' ? 'Добавлен' : item.change_type === 'red' ? 'Удален' : item.change_type === 'yellow' ? 'Цена' : 'База'}
                             </span>
                           </td>
-                          {/* Номенклатура отображает то, что стоит по факту в исходнике документа */}
                           <td className="p-2 font-normal text-slate-700 dark:text-slate-300 break-words">{item.raw_name}</td>
                           <td className="p-2 text-right font-bold text-slate-900 dark:text-slate-100 whitespace-nowrap">{item.price || '—'}</td>
                         </tr>
@@ -473,7 +493,6 @@ export default function App() {
         </div>
       )}
 
-      {/* ОКНО ПОДТВЕРЖДЕНИЯ */}
       {confirmModal.show && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
           <div className="bg-white dark:bg-slate-900 p-5 rounded-xl max-w-xs w-full shadow-2xl text-center border dark:border-slate-800">
@@ -489,7 +508,6 @@ export default function App() {
         </div>
       )}
       
-      {/* КИНЕТИЧЕСКИЕ И НАТИВНЫЕ ЭЛАСТИЧНЫЕ СТИЛИ СКРОЛЛА ПРИ УПОРЕ В КОНЕЦ КОНТЕНТА */}
       <style>{`
         .style-bounce-scroll {
           scroll-behavior: smooth;
