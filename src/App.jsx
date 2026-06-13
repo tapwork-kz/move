@@ -457,10 +457,12 @@ export default function App() {
                   <table className="w-full text-left border-collapse text-xs">
                     <thead>
                       <tr className="bg-slate-100 dark:bg-slate-800 border-b dark:border-slate-700 text-slate-500 dark:text-slate-400 uppercase text-[9px] font-bold">
-                        <th className="p-2">Статус</th>
-                        <th className="p-2">Наименование</th>
-                        <th className="p-2 text-right">Промо</th>
-                      </tr>
+  <th className="p-2">Статус</th>
+  {/* Подставляем реальное название первой колонки из Ворда */}
+  <th className="p-2">{selectedDoc?.header_col1 || 'Наименование'}</th>
+  {/* Подставляем реальное название второй колонки из Ворда */}
+  <th className="p-2 text-right">{selectedDoc?.header_col2 || 'Промо'}</th>
+</tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                       {filteredItems.map(item => (
