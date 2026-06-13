@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from './supabaseClient';
 
-// === СТРОГИЕ MATERIAL DESIGN SVG ИКОНКИ (БЕЗ ЭМОДЗИ) ===
+// === КОМПАКТНЫЕ MATERIAL DESIGN SVG ИКОНКИ ===
 const IconLogin = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 7a2 2 0 012 2v6a2 2 0 01-2 2H9a2 2 0 01-2-2V9a2 2 0 012-2m6 0V5a2 2 0 00-2-2H9a2 2 0 00-2 2v2m6 0h-6M12 11v4m-2-2h4"/></svg>;
 const IconNew = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0a2 2 0 01-2 2H6a2 2 0 01-2-2m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"/></svg>;
 const IconProcessed = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>;
@@ -40,7 +40,6 @@ export default function App() {
   const [confirmModal, setConfirmModal] = useState({ show: false, type: '', docId: null });
 
   const [touchStart, setTouchStart] = useState(null);
-
   const departments = ["#Цифра 🟠", "#МБТ 🟡", "#КБТ 🔵", "#Другое"];
 
   useEffect(() => {
@@ -71,26 +70,11 @@ export default function App() {
     return doc.document_items.some(item => item.is_in_stock === true);
   };
 
-  const isGiftDocument = (doc) => {
-    const nameLower = doc.file_name ? doc.file_name.toLowerCase() : '';
-    const isImageFile = nameLower.match(/\.(jpeg|jpg|gif|png|webp)$/i);
-    if (nameLower.includes('подарок') || nameLower.includes('комплект') || nameLower.includes('вставка') || isImageFile) {
-      return true;
-    }
-    if (doc.document_items && doc.document_items.length > 0) {
-      const hasRealPrices = doc.document_items.some(item => 
-        item.price && item.price !== '' && item.price !== 'Акция' && item.price !== 'Переоценка'
-      );
-      if (!hasRealPrices && doc.promo_number !== '🔖 Переоценка') return true;
-    }
-    return false;
-  };
-
-  // Мгновенный и безопасный расчет бейджей на клиенте
+  // Мгновенный расчет бейджей на стороне клиента на основе doc_type
   const updateTabCounters = async () => {
     if (!user) return;
     try {
-      let query = supabase.from('documents').select('status, dept, file_name, promo_number, period_end, document_items(price, is_in_stock)');
+      let query = supabase.from('documents').select('status, dept, doc_type, period_end, document_items(is_in_stock)');
       if (user.role !== 'Директор' && user.role !== 'Супервайзер') {
         query = query.in('dept', [user.dept, '#Другое']);
       } else if (selectedDept) {
@@ -109,7 +93,7 @@ export default function App() {
             else if (doc.status === 'processed') computedStatus = 'completed';
           }
 
-          if (isGiftDocument(doc)) {
+          if (doc.doc_type === 'gift' || doc.doc_type === 'media') {
             counts.gifts++;
           } else if (computedStatus === 'new' && !hasStock(doc)) {
             counts.processed++; 
@@ -122,7 +106,7 @@ export default function App() {
     } catch (err) { console.error(err); }
   };
 
-  // НАДЁЖНЫЕ НА ТИВНЫЕ СВАЙПЫ
+  // СВАЙПЫ ПО ВКЛАДКАМ С ПЛАВНЫМИ ПЕРЕХОДАМИ
   const handleTouchStart = (e) => setTouchStart(e.targetTouches[0].clientX);
   const handleTouchEnd = (e) => {
     if (!touchStart) return;
@@ -155,7 +139,6 @@ export default function App() {
     localStorage.removeItem('promo_app_user');
   };
 
-  // Изолированная от циклов функция подгрузки документов
   const fetchDocuments = async () => {
     if (!user) return;
     setLoading(true);
@@ -164,7 +147,7 @@ export default function App() {
         *,
         processed_by:users!processed_by_iin(full_name),
         completed_by:users!completed_by_iin(full_name),
-        document_items(price, is_in_stock)
+        document_items(price, is_in_stock, change_type, raw_name)
       `);
 
       if (user.role !== 'Директор' && user.role !== 'Супервайзер') {
@@ -177,10 +160,7 @@ export default function App() {
       if (error) throw error;
 
       const todayStr = new Date().toISOString().split('T')[0];
-      let rawDocs = data || [];
-
-      // Безопасный динамический маппинг статусов (без циклических перезаписей в БД)
-      let processed = rawDocs.map(doc => {
+      let mapped = (data || []).map(doc => {
         let s = doc.status;
         if (doc.period_end && doc.period_end < todayStr) {
           if (doc.status === 'new' && !hasStock(doc)) s = 'archive';
@@ -191,15 +171,15 @@ export default function App() {
 
       let finalDocs = [];
       if (currentTab === 'gifts') {
-        finalDocs = processed.filter(doc => isGiftDocument(doc));
+        finalDocs = mapped.filter(doc => doc.doc_type === 'gift' || doc.doc_type === 'media');
       } else if (currentTab === 'new') {
-        finalDocs = processed.filter(doc => doc.computedStatus === 'new' && hasStock(doc) && !isGiftDocument(doc));
+        finalDocs = mapped.filter(doc => doc.computedStatus === 'new' && hasStock(doc) && doc.doc_type !== 'gift' && doc.doc_type !== 'media');
       } else if (currentTab === 'processed') {
-        finalDocs = processed.filter(doc => ((doc.computedStatus === 'processed') || (doc.computedStatus === 'new' && !hasStock(doc))) && !isGiftDocument(doc));
+        finalDocs = mapped.filter(doc => ((doc.computedStatus === 'processed') || (doc.computedStatus === 'new' && !hasStock(doc))) && doc.doc_type !== 'gift' && doc.doc_type !== 'media');
       } else if (currentTab === 'completed') {
-        finalDocs = processed.filter(doc => doc.computedStatus === 'completed' && !isGiftDocument(doc));
+        finalDocs = mapped.filter(doc => doc.computedStatus === 'completed' && doc.doc_type !== 'gift' && doc.doc_type !== 'media');
       } else if (currentTab === 'archive') {
-        finalDocs = processed.filter(doc => doc.computedStatus === 'archive' && !isGiftDocument(doc));
+        finalDocs = mapped.filter(doc => doc.computedStatus === 'archive' && doc.doc_type !== 'gift' && doc.doc_type !== 'media');
       }
 
       setDocuments(finalDocs);
@@ -217,24 +197,32 @@ export default function App() {
     } catch (err) { console.error(err.message); }
   };
 
+  const executeStatusChange = async () => {
+    const { type, docId } = confirmModal;
+    const updatePayload = {};
+    if (type === 'process') {
+      updatePayload.status = 'processed';
+      updatePayload.processed_by_iin = user.iin;
+      updatePayload.processed_at = new Date().toISOString();
+    } else if (type === 'archive') {
+      updatePayload.status = 'archive';
+      updatePayload.completed_by_iin = user.iin;
+      updatePayload.completed_at = new Date().toISOString();
+    }
+    try {
+      const { error } = await supabase.from('documents').update(updatePayload).eq('id', docId);
+      if (error) throw error;
+      setConfirmModal({ show: false, type: '', docId: null });
+      if (selectedDoc) setSelectedDoc(null);
+      fetchDocuments();
+    } catch (err) { alert(err.message); }
+  };
+
   const formatCardDate = (isoString) => {
     if (!isoString) return '';
     const d = new Date(isoString);
     return d.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
   };
-
-  // Безопасное извлечение объектов пользователей (защита от падения)
-  const getUserFullName = (field) => {
-    if (!field) return null;
-    if (Array.isArray(field)) return field[0]?.full_name || null;
-    return field.full_name || null;
-  };
-
-  const filteredItems = docItems.filter(item => {
-    const matchesText = item.raw_name ? item.raw_name.toLowerCase().includes(itemSearch.toLowerCase()) : false;
-    if (modalTab === 'in_stock') return matchesText && item.is_in_stock;
-    return matchesText;
-  });
 
   const getRowStyle = (type) => {
     switch (type) {
@@ -245,30 +233,11 @@ export default function App() {
     }
   };
 
-  if (!user) {
-    return (
-      <div className="min-h-screen bg-slate-900 dark:bg-slate-950 flex items-center justify-center p-4 transition-all duration-500">
-        <form onSubmit={handleLogin} className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-xl max-w-sm w-full border dark:border-slate-800 transition-all duration-500">
-          <div className="flex flex-col items-center mb-5">
-            <div className="p-2.5 bg-blue-100 dark:bg-blue-950 text-blue-600 dark:text-blue-400 rounded-xl mb-2"><IconLogin /></div>
-            <h2 className="text-lg font-bold text-slate-800 dark:text-slate-100">Авторизация Табель</h2>
-          </div>
-          {authError && <div className="mb-3 p-2.5 bg-red-50 dark:bg-red-950/50 text-red-600 dark:text-red-400 text-xs font-semibold rounded-xl border border-red-200 dark:border-red-900">{authError}</div>}
-          <div className="space-y-3 mb-5">
-            <div>
-              <label className="block text-[11px] font-bold uppercase text-slate-400 tracking-wider mb-1">ИИН</label>
-              <input type="text" required placeholder="Введите ваш ИИН" className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none text-base dark:text-white" value={authForm.iin} onChange={e => setAuthForm({ ...authForm, iin: e.target.value })} />
-            </div>
-            <div>
-              <label className="block text-[11px] font-bold uppercase text-slate-400 tracking-wider mb-1">Пароль</label>
-              <input type="password" required placeholder="••••••••" className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none text-base dark:text-white" value={authForm.password} onChange={e => setAuthForm({ ...authForm, password: e.target.value })} />
-            </div>
-          </div>
-          <button type="submit" disabled={authLoading} className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-xl font-bold transition text-sm">Войти</button>
-        </form>
-      </div>
-    );
-  }
+  const filteredItems = docItems.filter(item => {
+    const matchesText = item.raw_name ? item.raw_name.toLowerCase().includes(itemSearch.toLowerCase()) : false;
+    if (modalTab === 'in_stock') return matchesText && item.is_in_stock;
+    return matchesText;
+  });
 
   return (
     <div 
@@ -277,7 +246,6 @@ export default function App() {
       className="w-full max-w-full overflow-hidden min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 flex flex-col justify-between transition-all duration-500 ease-in-out select-none"
     >
       <div className="w-full">
-        {/* ХЕДЕР: Исправлено залипание темы (0.5с плавная синхронная смена оттенка) */}
         <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 sticky top-0 z-20 px-4 py-2.5 flex items-center justify-between gap-4 shadow-xs transition-colors duration-500 ease-in-out">
           <div className="flex items-center gap-2">
             <div className="bg-blue-600 text-white w-6 h-6 rounded-md flex items-center justify-center font-bold text-xs">PM</div>
@@ -302,7 +270,7 @@ export default function App() {
         </header>
 
         <main className="w-full p-2.5 max-w-3xl mx-auto space-y-2.5 transition-all duration-500 ease-in-out">
-          {/* СЕТКА ТАБОВ: Обтекание внешним контуром сбалансировано до пикселя */}
+          {/* СЕТКА ТАБОВ: Обтекание с внешним контуром сбалансировано до пикселя */}
           <div className="grid grid-cols-5 bg-slate-200/70 dark:bg-slate-800/60 p-1 rounded-xl shadow-inner gap-0.5 border border-slate-300/10 transition-colors duration-500">
             {[
               { id: 'new', label: 'Акции', icon: <IconNew />, count: tabCounts.new },
@@ -365,7 +333,7 @@ export default function App() {
                         {doc.promo_number || 'АКЦИЯ'}
                       </span>
                       {/* УБРАНЫ БЕЙДЖИ С ВКЛАДКИ ОФОРМЛЕННЫЕ */}
-                      {isGiftDocument(doc) && currentTab !== 'processed' && (
+                      {(doc.doc_type === 'gift' || doc.doc_type === 'media') && currentTab !== 'processed' && (
                         <span className="bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 text-[8px] font-black px-1 rounded border border-purple-200 dark:border-purple-900">
                           Подарок / Комплект
                         </span>
@@ -380,8 +348,8 @@ export default function App() {
                         <span className="text-amber-600 dark:text-amber-400 font-bold bg-amber-50 dark:bg-amber-950/30 px-1 rounded transition-colors duration-500">Нет в наличии</span>
                       ) : (
                         <div className="text-slate-400 dark:text-slate-500 flex gap-2">
-                          {getUserFullName(doc.processed_by) && <span>Оформил: {getUserFullName(doc.processed_by)}</span>}
-                          {getUserFullName(doc.completed_by) && <span>Закрыл: {getUserFullName(doc.completed_by)}</span>}
+                          {doc.processed_by?.full_name && <span>Оформил: {doc.processed_by.full_name}</span>}
+                          {doc.completed_by?.full_name && <span>Закрыл: {doc.completed_by.full_name}</span>}
                         </div>
                       )}
                     </div>
@@ -445,9 +413,8 @@ export default function App() {
 
             <div className="flex-1 overflow-auto p-1.5 bg-slate-50 dark:bg-slate-950/20">
               {modalTab === 'source' ? (
-                /* ПОЛНОЕ ТЕЛО ДЛЯ ПРОСМОТРА БЕЗ КРИВЫХ ОТСТУПОВ (p-0 m-0) */
                 <div className="w-full h-full overflow-auto rounded-lg bg-white border border-slate-200 dark:border-slate-800 p-0 m-0" style={{ WebkitOverflowScrolling: 'touch' }}>
-                  {selectedDoc.file_name?.match(/\.(jpeg|jpg|gif|png|webp)$/i) ? (
+                  {selectedDoc.doc_type === 'media' || selectedDoc.file_name?.match(/\.(jpeg|jpg|gif|png|webp)$/i) ? (
                     <div className="flex items-center justify-center p-2 min-h-full bg-slate-900 rounded-lg">
                       <img src={selectedDoc.file_url} className="max-w-full h-auto max-h-[65vh] object-contain rounded-lg shadow-md" alt="Вложение" />
                     </div>
@@ -501,7 +468,7 @@ export default function App() {
         </div>
       )}
 
-      {/* МОДАЛКА ОЖИДАНИЯ */}
+      {/* ОКНО ПОДТВЕРЖДЕНИЯ */}
       {confirmModal.show && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
           <div className="bg-white dark:bg-slate-900 p-5 rounded-xl max-w-xs w-full shadow-2xl text-center border dark:border-slate-800">
@@ -517,7 +484,6 @@ export default function App() {
         </div>
       )}
       
-      {/* КИНЕТИЧЕСКИЕ И КИНЕМАТОГРАФИЧНЫЕ ЭЛАСТИЧНЫЕ СТИЛИ СКРОЛЛА ПРИ УПОРЕ */}
       <style>{`
         .style-bounce-scroll {
           scroll-behavior: smooth;
