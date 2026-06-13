@@ -42,6 +42,7 @@ export default function App() {
 
   const departments = ["#Цифра 🟠", "#МБТ 🟡", "#КБТ 🔵", "#Другое"];
 
+  // Шаг 1. Чистое считывание авторизации при старте приложения
   useEffect(() => {
     const savedUser = localStorage.getItem('promo_app_user');
     if (savedUser) {
@@ -49,30 +50,31 @@ export default function App() {
       setUser(parsed);
       setSelectedDept(parsed.role === 'Директор' || parsed.role === 'Супервайзер' ? '' : parsed.dept);
     }
+  }, []);
+
+  // Шаг 2. Изолированная и безопасная логика обновлений и фокуса окна
+  useEffect(() => {
+    if (!user) return; // Жесткий щит от пустых сессий
+
+    setDocuments([]); // Очищаем старые данные во избежание залипания
+    fetchDocuments();
+    updateTabCounters();
 
     const handleWindowFocus = () => {
-      if (localStorage.getItem('promo_app_user')) {
-        fetchDocuments();
-        updateTabCounters();
-      }
+      fetchDocuments();
+      updateTabCounters();
     };
 
     window.addEventListener('focus', handleWindowFocus);
     return () => window.removeEventListener('focus', handleWindowFocus);
-  }, [currentTab, selectedDept]);
-
-  useEffect(() => {
-    if (user) {
-      setDocuments([]); 
-      fetchDocuments();
-      updateTabCounters();
-    }
   }, [currentTab, selectedDept, searchQuery, dateFilter, user]);
 
   const updateTabCounters = async () => {
+    if (!user) return; // Защита
     try {
       let query = supabase.from('documents').select('status, dept');
-      if (user.role !== 'Директор' && user.role !== 'Супервайзер') {
+      const isAdmin = user.role === 'Директор' || user.role === 'Супервайзер';
+      if (!isAdmin) {
         query = query.or(`dept.eq."${user.dept}",dept.eq."#Другое"`);
       } else if (selectedDept) {
         query = query.eq('dept', selectedDept);
@@ -147,6 +149,7 @@ export default function App() {
   };
 
   const fetchDocuments = async () => {
+    if (!user) return; // Защита
     setLoading(true);
     try {
       let query = supabase.from('documents').select(`
@@ -155,7 +158,8 @@ export default function App() {
         completed_by:users!completed_by_iin(full_name)
       `);
 
-      if (user.role !== 'Директор' && user.role !== 'Супервайзер') {
+      const isAdmin = user.role === 'Директор' || user.role === 'Супервайзер';
+      if (!isAdmin) {
         query = query.or(`dept.eq."${user.dept}",dept.eq."#Другое"`);
       } else if (selectedDept) {
         query = query.eq('dept', selectedDept);
@@ -241,11 +245,44 @@ export default function App() {
     return nameLower.includes('подарок') || nameLower.includes('комплект');
   };
 
-  // Безопасное извлечение короткого имени (Защита от падения)
   const getShortName = (fullName) => {
     if (!fullName) return 'Сотрудник';
     return fullName.split(' ')[0];
   };
+
+  const getRowStyle = (type) => {
+    switch (type) {
+      case 'green': return 'bg-green-50 text-green-700 border-green-200 dark:bg-green-950/40 dark:text-green-400 dark:border-green-900';
+      case 'red': return 'bg-red-50 text-red-700 border-red-200 dark:bg-red-950/40 dark:text-red-400 dark:border-red-900';
+      case 'yellow': return 'bg-yellow-50 text-yellow-700 border-yellow-200 dark:bg-yellow-950/40 dark:text-yellow-400 dark:border-yellow-900';
+      default: return 'bg-slate-50 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700';
+    }
+  };
+
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-slate-900 dark:bg-slate-950 flex items-center justify-center p-4">
+        <form onSubmit={handleLogin} className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-xl max-w-sm w-full border dark:border-slate-800">
+          <div className="flex flex-col items-center mb-5">
+            <div className="p-2.5 bg-blue-100 dark:bg-blue-950 text-blue-600 dark:text-blue-400 rounded-xl mb-2"><IconLogin /></div>
+            <h2 className="text-lg font-bold text-slate-800 dark:text-slate-100">Авторизация Табель</h2>
+          </div>
+          {authError && <div className="mb-3 p-2.5 bg-red-50 dark:bg-red-950/50 text-red-600 dark:text-red-400 text-xs font-semibold rounded-xl border border-red-200 dark:border-red-900">{authError}</div>}
+          <div className="space-y-3 mb-5">
+            <div>
+              <label className="block text-[11px] font-bold uppercase text-slate-400 tracking-wider mb-1">ИИН</label>
+              <input type="text" required placeholder="Введите ваш ИИН" className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-base dark:text-white" value={authForm.iin} onChange={e => setAuthForm({ ...authForm, iin: e.target.value })} />
+            </div>
+            <div>
+              <label className="block text-[11px] font-bold uppercase text-slate-400 tracking-wider mb-1">Пароль</label>
+              <input type="password" required placeholder="••••••••" className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-base dark:text-white" value={authForm.password} onChange={e => setAuthForm({ ...authForm, password: e.target.value })} />
+            </div>
+          </div>
+          <button type="submit" disabled={authLoading} className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-xl font-bold transition text-sm">Войти</button>
+        </form>
+      </div>
+    );
+  }
 
   return (
     <div 
@@ -254,13 +291,12 @@ export default function App() {
       className="w-full max-w-full overflow-hidden min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 flex flex-col justify-between transition-colors duration-150 select-none"
     >
       <div className="w-full">
-        {/* Исправлен фон шапки в темной теме — добавлен класс dark:bg-slate-900 */}
         <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 sticky top-0 z-20 px-4 py-2.5 flex items-center justify-between gap-4 shadow-xs transition-colors duration-150">
           <div className="flex items-center gap-2">
             <div className="bg-blue-600 text-white w-6 h-6 rounded-md flex items-center justify-center font-bold text-xs">PM</div>
             <div>
               <h1 className="text-xs font-bold text-slate-900 dark:text-slate-100 leading-none">Мониторинг</h1>
-              <div className="flex items-center gap-1 text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">
+              <div className="flex items-center gap-1 text-[10px] text-slate-400 mt-0.5">
                 <span>{getShortName(user?.full_name)}</span>
                 <span>•</span>
                 <span>{user?.dept}</span>
@@ -268,7 +304,7 @@ export default function App() {
             </div>
           </div>
 
-          {(user.role === 'Директор' || user.role === 'Супервайзер') && (
+          {(user?.role === 'Директор' || user?.role === 'Супервайзер') && (
             <div className="flex items-center gap-1 bg-amber-50 dark:bg-slate-800 border border-amber-200 dark:border-slate-700 px-1.5 py-0.5 rounded-lg text-[10px]">
               <IconAdmin />
               <select className="bg-transparent border-none font-bold text-slate-700 dark:text-slate-200 outline-none p-0 text-[10px]" value={selectedDept} onChange={e => setSelectedDept(e.target.value)}>
@@ -351,7 +387,7 @@ export default function App() {
                     <h3 className="font-normal text-slate-700 dark:text-slate-200 text-xs sm:text-sm truncate">{doc.file_name}</h3>
                     {(doc.processed_by || doc.completed_by) && (
                       <div className="flex flex-wrap gap-x-2 text-[9px] text-slate-400 dark:text-slate-500 pt-0.5">
-                        {doc.processed_by && <span>✍️ {getShortName(doc.processed_by?.full_name)}</span>}
+                        {doc.processed_by && <span>✍px {getShortName(doc.processed_by?.full_name)}</span>}
                         {doc.completed_by && <span>🏷️ {getShortName(doc.completed_by?.full_name)}</span>}
                       </div>
                     )}
@@ -374,7 +410,6 @@ export default function App() {
 
       {selectedDoc && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-40 flex items-center justify-center p-2">
-          {/* Исправлен класс анимации — удалено "animate-in静态" */}
           <div className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl max-w-2xl w-full h-[85vh] flex flex-col overflow-hidden border dark:border-slate-800 animate-in fade-in duration-100">
             <div className="p-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 flex items-center justify-between">
               <div className="min-w-0 flex-1 pr-3">
@@ -460,7 +495,7 @@ export default function App() {
 
       {confirmModal.show && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 p-5 rounded-xl max-w-xs w-full shadow-2xl text-center border dark:border-slate-800">
+          <div className="bg-white p-5 rounded-xl max-w-xs w-full shadow-2xl text-center border dark:border-slate-800">
             <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 mb-1">Подтверждение</h3>
             <p className="text-[11px] text-slate-400 dark:text-slate-500 mb-4 leading-relaxed">
               {confirmModal.type === 'process' ? 'Оформить промо-акцию?' : 'Ценники обновлены?'}
