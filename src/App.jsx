@@ -1,19 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from './supabaseClient';
 
-// === МАТЕРИАЛЬНЫЕ ИКОНКИ ===
+// === КОМПАКТНЫЕ MATERIAL DESIGN SVG ИКОНКИ ===
 const IconLogin = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 7a2 2 0 012 2v6a2 2 0 01-2 2H9a2 2 0 01-2-2V9a2 2 0 012-2m6 0V5a2 2 0 00-2-2H9a2 2 0 00-2 2v2m6 0h-6M12 11v4m-2-2h4"/></svg>;
 const IconNew = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0a2 2 0 01-2 2H6a2 2 0 01-2-2m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"/></svg>;
 const IconProcessed = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>;
 const IconCompleted = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>;
 const IconArchive = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/></svg>;
-const IconSearch = () => <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>;
+const IconSearch = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>;
 const IconCalendar = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>;
-const IconAdmin = () => <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.952 11.952 0 01-7.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>;
+const IconAdmin = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.952 11.952 0 01-7.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>;
 const IconClose = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>;
-const IconStock = () => <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg>;
-const IconAll = () => <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 10h16M4 14h16M4 18h16"/></svg>;
-const IconFile = () => <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>;
+const IconStock = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg>;
+const IconAll = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 10h16M4 14h16M4 18h16"/></svg>;
+const IconFile = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>;
 
 const tabOrder = ['new', 'processed', 'completed', 'archive'];
 
@@ -37,13 +37,13 @@ export default function App() {
   const [modalTab, setModalTab] = useState('in_stock');
   const [itemSearch, setItemSearch] = useState('');
   const [confirmModal, setConfirmModal] = useState({ show: false, type: '', docId: null });
-  
-  // Для свайпов
+
+  // Переменная для фиксации начала свайпа
   const [touchStart, setTouchStart] = useState(null);
 
   const departments = ["#Цифра 🟠", "#МБТ 🟡", "#КБТ 🔵", "#Другое"];
 
-  // Нативное принудительное обновление контента при запуске и фокусе экрана
+  // 1. Принудительное обновление данных при фокусе/возврате в приложение
   useEffect(() => {
     const savedUser = localStorage.getItem('promo_app_user');
     if (savedUser) {
@@ -63,9 +63,10 @@ export default function App() {
     return () => window.removeEventListener('focus', handleWindowFocus);
   }, [currentTab, selectedDept]);
 
+  // 2. Очистка старого списка при переходе, чтобы избежать "залипания" надписи
   useEffect(() => {
     if (user) {
-      setDocuments([]); // Мгновенно очищаем старый список перед загрузкой нового
+      setDocuments([]); 
       fetchDocuments();
       updateTabCounters();
     }
@@ -74,32 +75,41 @@ export default function App() {
   const updateTabCounters = async () => {
     try {
       let query = supabase.from('documents').select('status, dept');
-      if (user.role !== 'Директор' && user.role !== 'Супервайзер') {
+      const isAdmin = user.role === 'Директор' || user.role === 'Супервайзер';
+      if (!isAdmin) {
         query = query.or(`dept.eq."${user.dept}",dept.eq."#Другое"`);
       } else if (selectedDept) {
         query = query.eq('dept', selectedDept);
       }
+
       const { data } = await query;
       if (data) {
         const counts = { new: 0, processed: 0, completed: 0, archive: 0 };
-        data.forEach(doc => { if (counts[doc.status] !== undefined) counts[doc.status]++; });
+        data.forEach(doc => {
+          if (counts[doc.status] !== undefined) counts[doc.status]++;
+        });
         setTabCounts(counts);
       }
-    } catch (err) { console.error(err); }
+    } catch (err) {
+      console.error(err);
+    }
   };
 
-  // ОБРАБОТКА СВАЙПОВ НА ТЕЛЕФОНЕ
-  const handleTouchStart = (e) => setTouchStart(e.targetTouches[0].clientX);
+  // 3. Обработка нативных свайпов (влево/вправо) для смены экранов
+  const handleTouchStart = (e) => {
+    setTouchStart(e.targetTouches[0].clientX);
+  };
+
   const handleTouchEnd = (e) => {
     if (!touchStart) return;
     const touchEnd = e.changedTouches[0].clientX;
     const diff = touchStart - touchEnd;
     const currentIdx = tabOrder.indexOf(currentTab);
 
-    if (diff > 60 && currentIdx < tabOrder.length - 1) {
-      setCurrentTab(tabOrder[currentIdx + 1]); // Свайп влево -> Вперед
-    } else if (diff < -60 && currentIdx > 0) {
-      setCurrentTab(tabOrder[currentIdx - 1]); // Свайп вправо -> Назад
+    if (diff > 70 && currentIdx < tabOrder.length - 1) {
+      setCurrentTab(tabOrder[currentIdx + 1]); // Свайп влево -> Следующий экран
+    } else if (diff < -70 && currentIdx > 0) {
+      setCurrentTab(tabOrder[currentIdx - 1]); // Свайп вправо -> Предыдущий экран
     }
     setTouchStart(null);
   };
@@ -109,14 +119,36 @@ export default function App() {
     setAuthError('');
     setAuthLoading(true);
     try {
-      const { data, error } = await supabase.from('users').select('*').eq('iin', authForm.iin).eq('password', authForm.password).maybeSingle();
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('iin', authForm.iin)
+        .eq('password', authForm.password)
+        .maybeSingle();
+
       if (error) throw error;
-      if (!data) { setAuthError('Неверный ИИН или пароль.'); return; }
-      if (data.login_status !== true) { setAuthError('Вход запрещен.'); return; }
+      if (!data) {
+        setAuthError('Неверный ИИН или пароль.');
+        return;
+      }
+      if (data.login_status !== true) {
+        setAuthError('Вход запрещен. Аккаунт деактивирован.');
+        return;
+      }
+
       setUser(data);
       setSelectedDept(data.role === 'Директор' || data.role === 'Супервайзер' ? '' : data.dept);
       localStorage.setItem('promo_app_user', JSON.stringify(data));
-    } catch (err) { setAuthError(err.message); } finally { setAuthLoading(false); }
+    } catch (err) {
+      setAuthError('Ошибка: ' + err.message);
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleLogout = () => {
+    setUser(null);
+    localStorage.removeItem('promo_app_user');
   };
 
   const fetchDocuments = async () => {
@@ -127,19 +159,45 @@ export default function App() {
         processed_by:users!processed_by_iin(full_name),
         completed_by:users!completed_by_iin(full_name)
       `);
-      if (user.role !== 'Директор' && user.role !== 'Супервайзер') {
+
+      const isAdmin = user.role === 'Директор' || user.role === 'Супервайзер';
+      if (!isAdmin) {
         query = query.or(`dept.eq."${user.dept}",dept.eq."#Другое"`);
       } else if (selectedDept) {
         query = query.eq('dept', selectedDept);
       }
+
       query = query.eq('status', currentTab);
-      if (searchQuery) query = query.or(`promo_number.ilike.%${searchQuery}%,file_name.ilike.%${searchQuery}%`);
-      if (dateFilter) query = query.lte('period_start', dateFilter).gte('period_end', dateFilter);
+
+      if (searchQuery) {
+        query = query.or(`promo_number.ilike.%${searchQuery}%,file_name.ilike.%${searchQuery}%`);
+      }
+
+      if (dateFilter) {
+        query = query.lte('period_start', dateFilter).gte('period_end', dateFilter);
+      }
 
       const { data, error } = await query.order('created_at', { ascending: false });
       if (error) throw error;
+
+      if (currentTab === 'processed') {
+        const todayStr = new Date().toISOString().split('T')[0];
+        const expiredDocs = data.filter(doc => doc.period_end && doc.period_end < todayStr);
+        
+        if (expiredDocs.length > 0) {
+          const expiredIds = expiredDocs.map(d => d.id);
+          await supabase.from('documents').update({ status: 'completed' }).in('id', expiredIds);
+          fetchDocuments();
+          return;
+        }
+      }
+
       setDocuments(data || []);
-    } catch (err) { console.error(err); } finally { setLoading(false); }
+    } catch (err) {
+      console.error(err.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const openDocDetails = async (doc) => {
@@ -147,15 +205,21 @@ export default function App() {
     setModalTab('in_stock');
     setItemSearch('');
     try {
-      const { data, error } = await supabase.from('document_items').select('*').eq('document_id', doc.id);
+      const { data, error } = await supabase
+        .from('document_items')
+        .select('*')
+        .eq('document_id', doc.id);
       if (error) throw error;
       setDocItems(data || []);
-    } catch (err) { console.error(err); }
+    } catch (err) {
+      console.error(err.message);
+    }
   };
 
   const executeStatusChange = async () => {
     const { type, docId } = confirmModal;
     const updatePayload = {};
+
     if (type === 'process') {
       updatePayload.status = 'processed';
       updatePayload.processed_by_iin = user.iin;
@@ -165,30 +229,34 @@ export default function App() {
       updatePayload.completed_by_iin = user.iin;
       updatePayload.completed_at = new Date().toISOString();
     }
+
     try {
       const { error } = await supabase.from('documents').update(updatePayload).eq('id', docId);
       if (error) throw error;
+
       setConfirmModal({ show: false, type: '', docId: null });
       if (selectedDoc) setSelectedDoc(null);
       fetchDocuments();
-    } catch (err) { alert(err.message); }
+    } catch (err) {
+      alert(err.message);
+    }
   };
 
-  // Проверка на подарок: если имя содержит маркер или внутри документа нет цен
+  // 4. Проверка на подарок/комплект по имени файла
   const isGiftDocument = (doc) => {
     const nameLower = doc.file_name.toLowerCase();
-    if (nameLower.includes('подарок') || nameLower.includes('комплект')) return true;
-    return false;
+    return nameLower.includes('подарок') || nameLower.includes('комплект');
   };
 
   return (
     <div 
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
-      className="w-full max-w-full overflow-hidden min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 flex flex-col justify-between select-none"
+      className="w-full max-w-full overflow-hidden min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 flex flex-col justify-between transition-colors duration-150 select-none"
     >
       <div className="w-full">
-        <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 sticky top-0 z-20 px-4 py-2 flex items-center justify-between gap-4 shadow-2xs">
+        {/* ХЕДЕР С ПОЛНОЙ ПОДДЕРЖКОЙ СМЕНЫ ТЕМ БЕЗ ЗАЛИПАНИЯ СТАРЫХ ЦВЕТОВ */}
+        <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 sticky top-0 z-20 px-4 py-2 flex items-center justify-between gap-4 shadow-xs transition-colors duration-150">
           <div className="flex items-center gap-2">
             <div className="bg-blue-600 text-white w-6 h-6 rounded-md flex items-center justify-center font-bold text-xs">PM</div>
             <div>
@@ -200,6 +268,7 @@ export default function App() {
               </div>
             </div>
           </div>
+
           {(user.role === 'Директор' || user.role === 'Супервайзер') && (
             <div className="flex items-center gap-1 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 px-1.5 py-0.5 rounded-lg text-[10px]">
               <IconAdmin />
@@ -212,8 +281,9 @@ export default function App() {
         </header>
 
         <main className="w-full p-2.5 max-w-3xl mx-auto space-y-2.5">
-          {/* ИСПРАВЛЕНЫ ОТСТУПЫ: Рамка обтекает активный элемент идеально */}
-          <div className="grid grid-cols-4 bg-slate-200/70 dark:bg-slate-800/80 p-1 rounded-xl shadow-inner gap-1 border border-transparent">
+          
+          {/* ИСПРАВЛЕНЫ ОТСТУПЫ ТАБОВ: Рамка обтекает активный элемент идеально по контуру */}
+          <div className="grid grid-cols-4 bg-slate-200/70 dark:bg-slate-800/60 p-0.5 rounded-xl shadow-inner gap-0.5 border border-slate-300/10">
             {[
               { id: 'new', label: 'Акции', icon: <IconNew />, count: tabCounts.new },
               { id: 'processed', label: 'Оформленные', icon: <IconProcessed />, count: tabCounts.processed },
@@ -223,7 +293,7 @@ export default function App() {
               <button
                 key={tab.id}
                 onClick={() => { setCurrentTab(tab.id); setDateFilter(''); }}
-                className={`relative flex flex-col items-center justify-center pt-2 pb-1.5 rounded-lg transition-all border border-transparent ${currentTab === tab.id ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs' : 'text-slate-500 dark:text-slate-400'}`}
+                className={`relative flex flex-col items-center justify-center pt-2 pb-1.5 rounded-lg transition-all ${currentTab === tab.id ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs' : 'text-slate-500 dark:text-slate-400'}`}
               >
                 {tab.count > 0 && (
                   <span className="absolute top-0.5 right-1 bg-red-500 text-white text-[8px] font-black h-3.5 min-w-[14px] px-1 rounded-full flex items-center justify-center border border-white dark:border-slate-950">
@@ -240,7 +310,6 @@ export default function App() {
           <div className="flex items-center gap-1.5">
             <div className="relative flex-1">
               <span className="absolute inset-y-0 left-0 flex items-center pl-2.5 text-slate-400"><IconSearch /></span>
-              {/* Поле поиска уменьшено (py-1.5) */}
               <input
                 type="text"
                 placeholder="Поиск документа..."
@@ -249,6 +318,7 @@ export default function App() {
                 onChange={e => setSearchQuery(e.target.value)}
               />
             </div>
+
             <div className="flex items-center justify-center bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 w-8 h-8 rounded-lg shrink-0 relative">
               <span className={dateFilter ? 'text-blue-500' : 'text-slate-400'}><IconCalendar /></span>
               <input type="date" className="absolute inset-0 opacity-0 cursor-pointer" value={dateFilter} onChange={e => setDateFilter(e.target.value)} />
@@ -258,18 +328,18 @@ export default function App() {
             </div>
           </div>
 
-          {/* СТРОГАЯ ОЧЕРЕДНОСТЬ ОТОБРАЖЕНИЯ: Сначала лоадер, а надпись "Список пуст" скрыта */}
+          {/* НАДПИСЬ ИСПРАВЛЕНА: Пока идет загрузка — "Список пуст" никогда не покажется */}
           {loading ? (
             <div className="text-center py-10 text-slate-400 dark:text-slate-600 font-medium text-xs tracking-wider animate-pulse">ОБРАБОТКА ДАННЫХ...</div>
           ) : documents.length === 0 ? (
-            <div className="text-center py-8 bg-white dark:bg-slate-900 border dark:border-slate-800 rounded-xl text-xs text-slate-400 font-medium">Список пуст</div>
+            <div className="text-center py-8 bg-white dark:bg-slate-900 border dark:border-slate-800 rounded-xl text-xs text-slate-400 font-medium shadow-2xs">Список пуст</div>
           ) : (
             <div className="space-y-1.5">
               {documents.map(doc => (
                 <div
                   key={doc.id}
                   onClick={() => openDocDetails(doc)}
-                  className="bg-white dark:bg-slate-900 p-2 rounded-lg border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 active:bg-slate-100 transition"
+                  className="bg-white dark:bg-slate-900 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 active:bg-slate-100 dark:active:bg-slate-800 transition shadow-2xs"
                 >
                   <div className="space-y-0.5 min-w-0 flex-1">
                     <div className="flex items-center gap-1.5 flex-wrap">
@@ -283,15 +353,15 @@ export default function App() {
                       )}
                       <span className="text-[9px] text-slate-400 font-medium">{doc.dept}</span>
                     </div>
-                    {/* font-normal вместо font-bold — убрана вся жирность наименований */}
+                    {/* font-normal — убрана вся жирность наименований в списках */}
                     <h3 className="font-normal text-slate-700 dark:text-slate-200 text-xs sm:text-sm truncate">{doc.file_name}</h3>
                   </div>
                   <div className="text-slate-300 dark:text-slate-700 shrink-0"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7"/></svg></div>
                 </div>
               ))}
               
-              {/* Элемент фиксации конца скроллинга для нативного мобильного эффекта */}
-              <div className="text-center pt-4 pb-2 text-slate-300 dark:text-slate-800 text-[10px] font-medium tracking-widest select-none">
+              {/* ПОДТЯГИВАНИЕ СТРАНИЦЫ ДО КОНЦА (Эффект завершения контента) */}
+              <div className="text-center pt-5 pb-3 text-slate-300 dark:text-slate-800 text-[10px] font-medium tracking-widest select-none">
                 • КОНЕЦ СПИСКА •
               </div>
             </div>
@@ -342,7 +412,7 @@ export default function App() {
               </div>
             )}
 
-            {/* ИСПРАВЛЕН СКРОЛЛИНГ: Контейнер изолирован и имеет независимый плавный скролл */}
+            {/* НАСТОЯЩИЙ ИЗОЛИРОВАННЫЙ СКРОЛЛ КОНТЕНТА ВНУТРИ ОКНА */}
             <div className="flex-1 overflow-y-auto overflow-x-hidden p-2 bg-slate-50 dark:bg-slate-950/20 -webkit-overflow-scrolling-touch">
               {modalTab === 'source' ? (
                 <div className="w-full h-full overflow-y-auto rounded-lg bg-white border border-slate-200 dark:border-slate-800" style={{ WebkitOverflowScrolling: 'touch' }}>
@@ -391,7 +461,7 @@ export default function App() {
         </div>
       )}
 
-      {/* ПОДТВЕРЖДЕНИЕ */}
+      {/* ОКОШКО ПОДТВЕРЖДЕНИЯ */}
       {confirmModal.show && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
           <div className="bg-white dark:bg-slate-900 p-5 rounded-xl max-w-xs w-full shadow-2xl text-center border dark:border-slate-800">
