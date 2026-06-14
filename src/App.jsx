@@ -430,11 +430,11 @@ export default function App() {
                     <h3 className="font-normal text-slate-700 dark:text-slate-200 text-xs sm:text-sm truncate transition-colors duration-500">{doc.file_name}</h3>
                     
                     <div className="flex flex-wrap gap-x-2 text-[9px] pt-0.5">
-                      {!hasStock(doc) && doc.status === 'new' && doc.doc_type !== 'gift' && doc.doc_type !== 'media' ? (
+                      {/* ИСПРАВЛЕНО: Убрано ограничение для подарков, теперь "Нет в наличии" пишется и там */}
+                      {!hasStock(doc) && doc.status === 'new' && doc.doc_type !== 'media' ? (
                         <span className="text-amber-600 dark:text-amber-400 font-bold bg-amber-50 dark:bg-amber-950/30 px-1 rounded transition-colors duration-500">Нет в наличии</span>
                       ) : (
                         <div className="text-slate-400 dark:text-slate-500 flex flex-wrap gap-x-2">
-                          {/* ИСПРАВЛЕНО: Даты выведены полностью без скобок */}
                           {doc.processed_by?.full_name && (
                             <span>Оформил: {doc.processed_by.full_name} {doc.processed_at && `в ${formatCardDate(doc.processed_at)}`}</span>
                           )}
