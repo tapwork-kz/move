@@ -86,8 +86,9 @@ export default function App() {
     if (!user) return;
     try {
       let query = supabase.from('documents').select('status, dept, doc_type, period_end, document_items(is_in_stock)');
-      if (user.role !== 'Директор' && user.role !== 'Супервайзер') {
-        query = query.in('dept', [user.dept, '#Другое']);
+      if (user.role !== 'Директор' && user.role !== 'Супервайзер' && user.role !== 'Инфо-консультант') {
+        // ИСПРАВЛЕНО: Частичное совпадение текста для обычных пользователей (например, "Цифра" совпадет с "#Цифра 🟠")
+        query = query.or(`dept.ilike.%${user.dept}%,dept.ilike.%Другое%`);
       } else if (selectedDept) {
         query = query.eq('dept', selectedDept);
       }
@@ -557,7 +558,10 @@ export default function App() {
                       <tr className="bg-slate-100 dark:bg-slate-800 border-b dark:border-slate-700 text-slate-500 dark:text-slate-400 uppercase text-[9px] font-bold">
                         <th className="p-2 w-[85px] shrink-0">Статус</th>
                         <th className="p-2 text-left">{selectedDoc?.header_col1 || 'Наименование'}</th>
-                        <th className="p-2 text-right w-[85px] shrink-0">{selectedDoc?.header_col2 || 'Переоценка'}</th>
+                        {/* ИСПРАВЛЕНО: Игнорируем дефолтный текст из БД и жестко пишем Переоценка, если тип файла revaluation */}
+                        <th className="p-2 text-right w-[85px] shrink-0">
+                          {selectedDoc?.doc_type === 'revaluation' ? 'Переоценка' : (selectedDoc?.header_col2 || 'Промо')}
+                        </th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
