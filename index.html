@@ -3,9 +3,14 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-    <title>Управление Промо-Акциями</title>
+    <title>Мониторинг Промо</title>
     
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    
+    <link rel="icon" type="image/png" href="favicon.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="favicon.png" />
+    <link rel="manifest" href="manifest.json" />
+    <meta name="theme-color" content="#2563eb" />
     
     <style>
       /* Намертво убираем вылеты за границы экрана и резиновый скролл */
@@ -16,12 +21,13 @@
         overflow-x: hidden;
         -webkit-overflow-scrolling: touch;
         touch-action: pan-x pan-y;
-        overscroll-behavior: none; /* Блокирует белые пустоты при обновлении страницы потяжкой */
+        overscroll-behavior: none; /* Блокирует стандартные белые пустоты */
       }
       
       #root {
         width: 100%;
         height: 100%;
+        will-change: transform;
       }
 
       /* Скрытие системных полос прокрутки */
@@ -35,19 +41,49 @@
     </style>
   </head>
   <body class="bg-slate-100 dark:bg-slate-950 m-0 p-0 text-slate-800 antialiased">
+    
     <div id="root"></div>
+    
     <script type="module" src="/src/main.jsx"></script>
 
-    <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Мониторинг Промо</title>
+    <script>
+      let startY = 0;
 
-    <link rel="icon" type="image/png" href="/favicon.png" />
-    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
-    
-    <link rel="manifest" href="/manifest.json" />
-    <meta name="theme-color" content="#2563eb" />
-  </head>
+      document.addEventListener('touchstart', (e) => {
+        startY = e.touches[0].pageY;
+      }, { passive: true });
+
+      document.addEventListener('touchmove', (e) => {
+        const y = e.touches[0].pageY;
+        const root = document.getElementById('root');
+        if (!root) return;
+
+        const scrollTop = window.scrollY || document.documentElement.scrollTop;
+        const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
+        const diff = y - startY;
+
+        // Эластичное натяжение вверх (в начале страницы)
+        if (scrollTop <= 0 && diff > 0) {
+          const damping = Math.pow(diff, 0.65); // Физика сопротивления
+          root.style.transform = `translateY(${damping}px)`;
+          root.style.transition = 'none';
+        } 
+        // Эластичное натяжение вниз (в самом конце страницы)
+        else if (scrollTop >= maxScroll && diff < 0) {
+          const damping = -Math.pow(Math.abs(diff), 0.65); // Физика сопротивления
+          root.style.transform = `translateY(${damping}px)`;
+          root.style.transition = 'none';
+        }
+      }, { passive: true });
+
+      document.addEventListener('touchend', () => {
+        const root = document.getElementById('root');
+        if (!root) return;
+        
+        // Плавный упругий возврат интерфейса в исходную позицию
+        root.style.transition = 'transform 0.45s cubic-bezier(0.25, 1, 0.5, 1)';
+        root.style.transform = 'translateY(0)';
+      });
+    </script>
   </body>
 </html>
