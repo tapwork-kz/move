@@ -417,103 +417,120 @@ export default function App() {
         <button onClick={handleLogout} className="text-[10px] text-slate-300 dark:text-slate-700 hover:text-slate-400 transition underline">Выйти из системы табеля</button>
       </footer>
 
-      {selectedDoc && (
-  <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-40 flex items-center justify-center p-1 sm:p-2 transition-all duration-500 ease-in-out">
-    <div className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl max-w-7xl w-full h-[92vh] flex flex-col overflow-hidden border dark:border-slate-800 transition-all duration-500 ease-in-out">
-      
-      {/* ШАПКА МОДАЛЬНОГО ОКНА */}
-      <div className="p-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 flex items-center justify-between transition-colors duration-500">
-        <div className="min-w-0 flex-1 pr-3">
-          <span className="text-[9px] font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/50 px-1 py-0.2 rounded border border-blue-200 uppercase tracking-wider">{selectedDoc.promo_number || 'Документ'}</span>
-          <h2 className="text-xs font-bold text-slate-900 dark:text-slate-100 mt-0.5 truncate">{selectedDoc.file_name}</h2>
-        </div>
-        <button onClick={() => setSelectedDoc(null)} className="text-slate-400 hover:text-slate-600 p-1"><IconClose /></button>
-      </div>
+      {selectedDoc && (() => {
+  // Умное определение расширений файлов на лету
+  const isImg = selectedDoc.file_name?.match(/\.(jpeg|jpg|gif|png|webp)$/i) || selectedDoc.doc_type === 'media' && !selectedDoc.file_name?.toLowerCase().endsWith('.pdf');
+  const isPdf = selectedDoc.file_name?.toLowerCase().endsWith('.pdf');
+  const isMediaContent = selectedDoc.doc_type === 'media' || isImg || isPdf;
+  
+  // Извлекаем ID файла из Google Drive для трансформации ссылок
+  const driveId = selectedDoc.file_url?.includes('file/d/') ? selectedDoc.file_url.match(/file\/d\/([^/]+)/)?.[1] : null;
+  
+  // Собираем правильную ссылку: для картинок — прямой стрим, для PDF/Ворд — изолированный плеер
+  const finalUrl = driveId 
+    ? (isImg ? `https://drive.google.com/uc?export=view&id=${driveId}` : `https://drive.google.com/file/d/${driveId}/preview`) 
+    : selectedDoc.file_url;
 
-      {/* ПОДВКЛАДКИ: Отображаются только если документ НЕ является изображением */}
-      {!(selectedDoc.doc_type === 'media' || selectedDoc.file_name?.match(/\.(jpeg|jpg|gif|png|webp)$/i)) && (
-        <div className="p-1 bg-slate-50 dark:bg-slate-950/40 border-b dark:border-slate-800 shrink-0">
-          <div className="grid grid-cols-3 bg-slate-200/60 dark:bg-slate-800/60 p-0.5 rounded-lg text-slate-500 font-medium w-full">
-            <button onClick={() => setModalTab('in_stock')} className={`flex items-center justify-center gap-1 py-1 text-[10px] sm:text-xs rounded-md transition-all ${modalTab === 'in_stock' ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-2xs' : ''}`}>
-              <IconStock /> В наличии ({docItems.filter(i => i.is_in_stock).length})
-            </button>
-            <button onClick={() => setModalTab('all')} className={`flex items-center justify-center gap-1 py-1 text-[10px] sm:text-xs rounded-md transition-all ${modalTab === 'all' ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-2xs' : ''}`}>
-              <IconAll /> Все ({docItems.length})
-            </button>
-            <button onClick={() => setModalTab('source')} className={`flex items-center justify-center gap-1 py-1 text-[10px] sm:text-xs rounded-md transition-all ${modalTab === 'source' ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-2xs' : ''}`}>
-              <IconFile /> Документ
-            </button>
+  return (
+    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-40 flex items-center justify-center p-1 sm:p-2 transition-all duration-500 ease-in-out">
+      <div className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl max-w-7xl w-full h-[92vh] flex flex-col overflow-hidden border dark:border-slate-800 transition-all duration-500 ease-in-out">
+        
+        {/* ШАПКА МОДАЛЬНОГО ОКНА */}
+        <div className="p-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 flex items-center justify-between transition-colors duration-500">
+          <div className="min-w-0 flex-1 pr-3">
+            <span className="text-[9px] font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/50 px-1 py-0.2 rounded border border-blue-200 uppercase tracking-wider">{selectedDoc.promo_number || 'Документ'}</span>
+            <h2 className="text-xs font-bold text-slate-900 dark:text-slate-100 mt-0.5 truncate">{selectedDoc.file_name}</h2>
           </div>
+          <button onClick={() => setSelectedDoc(null)} className="text-slate-400 hover:text-slate-600 p-1"><IconClose /></button>
         </div>
-      )}
 
-      {/* ПОИСК ПО СПЕЦИФИКАЦИИ: Скрывается в режиме просмотра файлов-изображений */}
-      {modalTab !== 'source' && !(selectedDoc.doc_type === 'media' || selectedDoc.file_name?.match(/\.(jpeg|jpg|gif|png|webp)$/i)) && (
-        <div className="p-1.5 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 shrink-0">
-          <input
-            type="text"
-            placeholder="Поиск товара по спецификации..."
-            className="w-full p-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg outline-none text-xs font-medium dark:text-white"
-            value={itemSearch}
-            onChange={e => setItemSearch(e.target.value)}
-          />
-        </div>
-      )}
+        {/* ПОДВКЛАДКИ: Скрываются полностью, если это картинка или PDF */}
+        {!isMediaContent && (
+          <div className="p-1 bg-slate-50 dark:bg-slate-950/40 border-b dark:border-slate-800 shrink-0">
+            <div className="grid grid-cols-3 bg-slate-200/60 dark:bg-slate-800/60 p-0.5 rounded-lg text-slate-500 font-medium w-full">
+              <button onClick={() => setModalTab('in_stock')} className={`flex items-center justify-center gap-1 py-1 text-[10px] sm:text-xs rounded-md transition-all ${modalTab === 'in_stock' ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-2xs' : ''}`}>
+                <IconStock /> В наличии ({docItems.filter(i => i.is_in_stock).length})
+              </button>
+              <button onClick={() => setModalTab('all')} className={`flex items-center justify-center gap-1 py-1 text-[10px] sm:text-xs rounded-md transition-all ${modalTab === 'all' ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-2xs' : ''}`}>
+                <IconAll /> Все ({docItems.length})
+              </button>
+              <button onClick={() => setModalTab('source')} className={`flex items-center justify-center gap-1 py-1 text-[10px] sm:text-xs rounded-md transition-all ${modalTab === 'source' ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-2xs' : ''}`}>
+                <IconFile /> Документ
+              </button>
+            </div>
+          </div>
+        )}
 
-      {/* ГЛАВНЫЙ СЛУЖЕБНЫЙ КОНТЕНТ ОКНА */}
-      <div className="flex-1 overflow-auto p-1.5 bg-slate-50 dark:bg-slate-950/20">
-        {selectedDoc.doc_type === 'media' || selectedDoc.file_name?.match(/\.(jpeg|jpg|gif|png|webp)$/i) ? (
-          /* ПРЯМАЯ ДЕТЕКЦИЯ МЕДИА: Изображение выводится на весь экран без вкладок */
-          <div className="flex items-center justify-center p-2 min-h-full bg-slate-950 rounded-lg">
-            <img src={selectedDoc.file_url} className="max-w-full h-auto max-h-[75vh] object-contain rounded-lg shadow-2xl" alt="Вложение" />
+        {/* ПОИСК ПО СПЕЦИФИКАЦИИ: Скрывается для картинок и PDF */}
+        {modalTab !== 'source' && !isMediaContent && (
+          <div className="p-1.5 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 shrink-0">
+            <input
+              type="text"
+              placeholder="Поиск товара по спецификации..."
+              className="w-full p-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg outline-none text-xs font-medium dark:text-white"
+              value={itemSearch}
+              onChange={e => setItemSearch(e.target.value)}
+            />
           </div>
-        ) : modalTab === 'source' ? (
-          <div className="w-full h-full overflow-auto rounded-lg bg-white border border-slate-200 dark:border-slate-800 p-0 m-0" style={{ WebkitOverflowScrolling: 'touch' }}>
-            <iframe src={selectedDoc.file_url} width="100%" height="100%" className="w-full h-full min-h-[500px] border-none p-0 m-0" title="Doc" />
-          </div>
-        ) : filteredItems.length === 0 ? (
-          <div className="text-center py-10 text-slate-400 text-xs font-bold uppercase">Ничего не найдено</div>
-        ) : (
-          <div className="overflow-x-auto border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-lg shadow-2xs">
-            <table className="w-full text-left border-collapse text-xs">
-              <thead>
-                <tr className="bg-slate-100 dark:bg-slate-800 border-b dark:border-slate-700 text-slate-500 dark:text-slate-400 uppercase text-[9px] font-bold">
-                  <th className="p-2">Статус</th>
-                  <th className="p-2">{selectedDoc?.header_col1 || 'Наименование'}</th>
-                  <th className="p-2 text-right">{selectedDoc?.header_col2 || 'Промо'}</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {filteredItems.map(item => (
-                  <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition">
-                    <td className="p-2">
-                      <span className={`px-1 py-0.2 rounded text-[8px] font-bold border ${getRowStyle(item.change_type)}`}>
-                        {item.change_type === 'green' ? 'Добавлен' : item.change_type === 'red' ? 'Удален' : item.change_type === 'yellow' ? 'Цена' : 'База'}
-                      </span>
-                    </td>
-                    <td className="p-2 font-normal text-slate-700 dark:text-slate-300 break-words">{item.raw_name}</td>
-                    <td className="p-2 text-right font-bold text-slate-900 dark:text-slate-100 whitespace-nowrap">{item.price || '—'}</td>
+        )}
+
+        {/* ГЛАВНЫЙ СЛУЖЕБНЫЙ КОНТЕНТ ОКНА */}
+        <div className="flex-1 overflow-auto p-1.5 bg-slate-50 dark:bg-slate-950/20">
+          {isImg ? (
+            /* ОТРЕНДЕРЕННАЯ КАРТИНКА ЧЕРЕЗ ПРЯМОЙ СТРИМ */
+            <div className="flex items-center justify-center p-2 min-h-full bg-slate-950 rounded-lg">
+              <img src={finalUrl} className="max-w-full h-auto max-h-[75vh] object-contain rounded-lg shadow-2xl" alt="Вложение" />
+            </div>
+          ) : isPdf || modalTab === 'source' ? (
+            /* PDF ИЛИ ИСХОДНЫЙ ДОКУМЕНТ ЧЕРЕЗ БЕЗОПАСНЫЙ ИЗОЛИРОВАННЫЙ IFRAME PREVIEW */
+            <div className="w-full h-full overflow-auto rounded-lg bg-white border border-slate-200 dark:border-slate-800 p-0 m-0" style={{ WebkitOverflowScrolling: 'touch' }}>
+              <iframe src={finalUrl} width="100%" height="100%" className="w-full h-full min-h-[500px] border-none p-0 m-0" title="Doc" />
+            </div>
+          ) : filteredItems.length === 0 ? (
+            <div className="text-center py-10 text-slate-400 text-xs font-bold uppercase">Ничего не найдено</div>
+          ) : (
+            /* СТАНДАРТНАЯ ТАБЛИЦА НОМЕНКЛАТУР ДЛЯ PROMO И REVALUATION */
+            <div className="overflow-x-auto border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-lg shadow-2xs">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="bg-slate-100 dark:bg-slate-800 border-b dark:border-slate-700 text-slate-500 dark:text-slate-400 uppercase text-[9px] font-bold">
+                    <th className="p-2">Статус</th>
+                    <th className="p-2">{selectedDoc?.header_col1 || 'Наименование'}</th>
+                    <th className="p-2 text-right">{selectedDoc?.header_col2 || 'Промо'}</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {filteredItems.map(item => (
+                    <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition">
+                      <td className="p-2">
+                        <span className={`px-1 py-0.2 rounded text-[8px] font-bold border ${getRowStyle(item.change_type)}`}>
+                          {item.change_type === 'green' ? 'Добавлен' : item.change_type === 'red' ? 'Удален' : item.change_type === 'yellow' ? 'Цена' : 'База'}
+                        </span>
+                      </td>
+                      <td className="p-2 font-normal text-slate-700 dark:text-slate-300 break-words">{item.raw_name}</td>
+                      <td className="p-2 text-right font-bold text-slate-900 dark:text-slate-100 whitespace-nowrap">{item.price || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
 
-      {/* НИЖНЯЯ ПАНЕЛЬ С УПРАВЛЯЮЩИМИ КНОПКАМИ */}
-      <div className="p-2 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 flex items-center justify-end gap-1.5 shrink-0">
-        <button onClick={() => setSelectedDoc(null)} className="px-3 py-1.5 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-bold bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300">Закрыть</button>
-        {currentTab === 'new' && hasStock(selectedDoc) && (
-          <button onClick={() => setConfirmModal({ show: true, type: 'process', docId: selectedDoc.id })} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg shadow-xs">Оформить акцию</button>
-        )}
-        {currentTab === 'completed' && (
-          <button onClick={() => setConfirmModal({ show: true, type: 'archive', docId: selectedDoc.id })} className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white text-xs font-bold rounded-lg shadow-xs">Ценники обновлены</button>
-        )}
+        {/* НИЖНЯЯ ПАНЕЛЬ С УПРАВЛЯЮЩИМИ КНОПКАМИ */}
+        <div className="p-2 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 flex items-center justify-end gap-1.5 shrink-0">
+          <button onClick={() => setSelectedDoc(null)} className="px-3 py-1.5 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-bold bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300">Закрыть</button>
+          {currentTab === 'new' && hasStock(selectedDoc) && (
+            <button onClick={() => setConfirmModal({ show: true, type: 'process', docId: selectedDoc.id })} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg shadow-xs">Оформить акцию</button>
+          )}
+          {currentTab === 'completed' && (
+            <button onClick={() => setConfirmModal({ show: true, type: 'archive', docId: selectedDoc.id })} className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white text-xs font-bold rounded-lg shadow-xs">Ценники обновлены</button>
+          )}
+        </div>
       </div>
     </div>
-  </div>
-)}
+  );
+})()}
 
 {confirmModal.show && (
   <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
