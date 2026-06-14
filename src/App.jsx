@@ -3,7 +3,7 @@ import { supabase } from './supabaseClient';
 
 // === КОМПАКТНЫЕ MATERIAL DESIGN SVG ИКОНКИ ===
 const IconLogin = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 7a2 2 0 012 2v6a2 2 0 01-2 2H9a2 2 0 01-2-2V9a2 2 0 012-2m6 0V5a2 2 0 00-2-2H9a2 2 0 00-2 2v2m6 0h-6M12 11v4m-2-2h4"/></svg>;
-const IconNew = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0a2 2 0 01-2 2H6a2 2 0 00-2 2v7m16 0a2 2 0 01-2 2H6a2 2 0 01-2-2m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"/></svg>;
+const IconNew = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0a2 2 0 01-2 2H6a2 2 0 01-2-2m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"/></svg>;
 const IconProcessed = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>;
 const IconCompleted = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>;
 const IconArchive = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/></svg>;
@@ -39,6 +39,7 @@ export default function App() {
   const [itemSearch, setItemSearch] = useState('');
   const [confirmModal, setConfirmModal] = useState({ show: false, type: '', docId: null });
 
+  // Локальные подразделы для вкладок
   const [promoSubTab, setPromoSubTab] = useState('new'); 
   const [giftsSubTab, setGiftsSubTab] = useState('new'); 
   const [touchStart, setTouchStart] = useState(null);
@@ -104,12 +105,10 @@ export default function App() {
           }
 
           if (doc.doc_type === 'gift' || doc.doc_type === 'media') {
-            if (doc.status === 'new' || doc.status === 'processed') {
+            if (doc.doc_type === 'gift' && doc.status === 'new' && !hasStock(doc)) {
+              counts.processed++; 
+            } else if (doc.status === 'new' || doc.status === 'processed') {
               counts.gifts++; 
-            } else if (computedStatus === 'completed') {
-              counts.completed++;
-            } else if (computedStatus === 'archive') {
-              counts.archive++;
             }
           } else {
             if (computedStatus === 'new' || computedStatus === 'processed') {
@@ -126,20 +125,27 @@ export default function App() {
     } catch (err) { console.error(err); }
   };
 
-  // ИСПРАВЛЕНО: Полное отключение свайпов жестами при открытом модальном окне
+  // ИСПРАВЛЕНО: Свайп принудительно отключается, если открыто окошко документа
   const handleTouchStart = (e) => {
-    if (selectedDoc) return; 
+    if (selectedDoc) return;
     setTouchStart(e.targetTouches[0].clientX);
   };
-
+  
   const handleTouchEnd = (e) => {
-    if (selectedDoc || !touchStart) return; 
+    if (selectedDoc || !touchStart) return;
     const touchEnd = e.changedTouches[0].clientX;
     const diff = touchStart - touchEnd;
     const currentIdx = tabOrder.indexOf(currentTab);
 
-    if (diff > 70 && currentIdx < tabOrder.length - 1) setCurrentTab(tabOrder[currentIdx + 1]);
-    else if (diff < -70 && currentIdx > 0) setCurrentTab(tabOrder[currentIdx - 1]);
+    if (diff > 70 && currentIdx < tabOrder.length - 1) {
+      setCurrentTab(tabOrder[currentIdx + 1]);
+      setPromoSubTab('new');
+      setGiftsSubTab('new');
+    } else if (diff < -70 && currentIdx > 0) {
+      setCurrentTab(tabOrder[currentIdx - 1]);
+      setPromoSubTab('new');
+      setGiftsSubTab('new');
+    }
     setTouchStart(null);
   };
 
@@ -180,12 +186,11 @@ export default function App() {
         query = query.eq('dept', selectedDept);
       }
 
-      // ИСПРАВЛЕНО: Жесткий и точный поиск по совпадению ключевого слова
       if (searchQuery) {
         query = query.or(`promo_number.ilike.%${searchQuery}%,file_name.ilike.%${searchQuery}%`);
       }
 
-      // ИСПРАВЛЕНО: Рабочий календарь. Ищет все документы, поступившие строго в выбранный день
+      // ИСПРАВЛЕНО: Календарь теперь ищет строго по суткам поступления писем (created_at)
       if (dateFilter) {
         query = query.gte('created_at', `${dateFilter}T00:00:00`).lte('created_at', `${dateFilter}T23:59:59`);
       }
@@ -261,7 +266,7 @@ export default function App() {
     } catch (err) { alert(err.message); }
   };
 
-  // ИСПРАВЛЕНО: Даты выводятся полностью с 4-значным годом, без запятых и скобок
+  // ИСПРАВЛЕНО: Вывод даты с полным четырехзначным годом без лишних знаков и скобок
   const formatCardDate = (isoString) => {
     if (!isoString) return '';
     const d = new Date(isoString);
@@ -274,13 +279,17 @@ export default function App() {
     }).replace(',', '');
   };
 
-  // ИСПРАВЛЕНО: Парсинг цен переоценки Excel. Очищает от "₸", делит тысячи пробелами
-  const formatExcelPrice = (price) => {
+  // ИСПРАВЛЕНО: Парсинг и разделение слитных цен Excel без валюты (Подарки не затрагивает)
+  const formatDisplayPrice = (price, docType) => {
     if (!price) return '—';
-    if (price.toLowerCase().includes('акция') || price.toLowerCase().includes('переоценка')) return price;
-    let cleanNumber = price.replace(/[^\d]/g, ''); 
-    if (!cleanNumber) return price; 
-    return Number(cleanNumber).toLocaleString('ru-RU');
+    if (docType === 'revaluation') {
+      let clean = price.replace(/[₸\s]/g, '').trim();
+      if (!isNaN(clean) && clean !== '') {
+        return Number(clean).toLocaleString('ru-RU');
+      }
+      return price.replace('₸', '').trim();
+    }
+    return price;
   };
 
   const getRowStyle = (type) => {
@@ -363,7 +372,7 @@ export default function App() {
             ].map(tab => (
               <button
                 key={tab.id}
-                onClick={() => { setCurrentTab(tab.id); setDateFilter(''); }}
+                onClick={() => { setCurrentTab(tab.id); setDateFilter(''); setPromoSubTab('new'); setGiftsSubTab('new'); }}
                 className={`relative flex flex-col items-center justify-center pt-2.5 pb-2 rounded-lg transition-all duration-500 ease-in-out ${currentTab === tab.id ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs' : 'text-slate-500 dark:text-slate-400'}`}
               >
                 {tab.count > 0 && (
@@ -377,32 +386,9 @@ export default function App() {
             ))}
           </div>
 
-          {/* ПОДРАЗДЕЛЫ ДЛЯ ВКЛАДКИ АКЦИИ */}
-          {currentTab === 'new' && (
-            <div className="grid grid-cols-2 bg-slate-200/60 dark:bg-slate-800/60 p-1 rounded-lg shadow-inner gap-1 max-w-[220px] mx-auto mt-1 transition-all duration-500 ease-in-out border border-slate-300/10">
-              <button onClick={() => setPromoSubTab('new')} className={`py-1 text-[11px] font-bold rounded-md transition-all duration-300 ${promoSubTab === 'new' ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-2xs' : 'text-slate-500 dark:text-slate-400'}`}>
-                Новые
-              </button>
-              <button onClick={() => setPromoSubTab('processed')} className={`py-1 text-[11px] font-bold rounded-md transition-all duration-300 ${promoSubTab === 'processed' ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-2xs' : 'text-slate-500 dark:text-slate-400'}`}>
-                Оформленные
-              </button>
-            </div>
-          )}
-
-          {/* ПОДРАЗДЕЛЫ ДЛЯ ВКЛАДКИ ПОДАРКИ */}
-          {currentTab === 'gifts' && (
-            <div className="grid grid-cols-2 bg-slate-200/60 dark:bg-slate-800/60 p-1 rounded-lg shadow-inner gap-1 max-w-[220px] mx-auto mt-1 transition-all duration-500 ease-in-out border border-slate-300/10">
-              <button onClick={() => setGiftsSubTab('new')} className={`py-1 text-[11px] font-bold rounded-md transition-all duration-300 ${giftsSubTab === 'new' ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-2xs' : 'text-slate-500 dark:text-slate-400'}`}>
-                Новые
-              </button>
-              <button onClick={() => setGiftsSubTab('processed')} className={`py-1 text-[11px] font-bold rounded-md transition-all duration-300 ${giftsSubTab === 'processed' ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-2xs' : 'text-slate-500 dark:text-slate-400'}`}>
-                Оформленные
-              </button>
-            </div>
-          )}
-
-          <div className="flex items-center gap-1.5">
-            <div className="relative flex-1">
+          {/* ИСПРАВЛЕНО: Подразделы теперь органично встроены в строку поиска, календаря и фильтрации */}
+          <div className="flex items-center gap-1.5 w-full flex-wrap sm:flex-nowrap">
+            <div className="relative flex-1 min-w-[150px]">
               <span className="absolute inset-y-0 left-0 flex items-center pl-2.5 text-slate-400"><IconSearch /></span>
               <input
                 type="text"
@@ -412,6 +398,27 @@ export default function App() {
                 onChange={e => setSearchQuery(e.target.value)}
               />
             </div>
+
+            {/* Однострочная кнопка циклического переключения для Акций */}
+            {currentTab === 'new' && (
+              <button 
+                onClick={() => setPromoSubTab(promoSubTab === 'new' ? 'processed' : 'new')} 
+                className={`px-3 py-1.5 text-xs font-bold rounded-lg border transition shadow-2xs whitespace-nowrap ${promoSubTab === 'processed' ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300'}`}
+              >
+                {promoSubTab === 'processed' ? 'Оформленные' : 'Новые'}
+              </button>
+            )}
+
+            {/* Однострочная кнопка циклического переключения для Подарков */}
+            {currentTab === 'gifts' && (
+              <button 
+                onClick={() => setGiftsSubTab(giftsSubTab === 'new' ? 'processed' : 'new')} 
+                className={`px-3 py-1.5 text-xs font-bold rounded-lg border transition shadow-2xs whitespace-nowrap ${giftsSubTab === 'processed' ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300'}`}
+              >
+                {giftsSubTab === 'processed' ? 'Оформленные' : 'Новые'}
+              </button>
+            )}
+
             <div className="flex items-center justify-center bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 w-8 h-8 rounded-lg shrink-0 relative shadow-2xs transition-colors duration-500">
               <span className={dateFilter ? 'text-blue-500' : 'text-slate-400'}><IconCalendar /></span>
               <input type="date" className="absolute inset-0 opacity-0 cursor-pointer" value={dateFilter} onChange={e => setDateFilter(e.target.value)} />
@@ -448,15 +455,16 @@ export default function App() {
                     <h3 className="font-normal text-slate-700 dark:text-slate-200 text-xs sm:text-sm truncate transition-colors duration-500">{doc.file_name}</h3>
                     
                     <div className="flex flex-wrap gap-x-2 text-[9px] pt-0.5">
-                      {!hasStock(doc) && doc.status === 'new' && doc.doc_type !== 'gift' && doc.doc_type !== 'media' ? (
+                      {/* ИСПРАВЛЕНО: Желтый маркер нехватки остатков теперь корректно отображается и на подарках */}
+                      {!hasStock(doc) && doc.status === 'new' && doc.doc_type !== 'media' ? (
                         <span className="text-amber-600 dark:text-amber-400 font-bold bg-amber-50 dark:bg-amber-950/30 px-1 rounded transition-colors duration-500">Нет в наличии</span>
                       ) : (
                         <div className="text-slate-400 dark:text-slate-500 flex flex-wrap gap-x-2">
                           {doc.processed_by?.full_name && (
-                            <span>Оформил: {doc.processed_by.full_name} {doc.processed_at && `в ${formatCardDate(doc.processed_at)}`}</span>
+                            <span>Оформил: {doc.processed_by.full_name} {doc.processed_at && `— ${formatCardDate(doc.processed_at)}`}</span>
                           )}
                           {doc.completed_by?.full_name && (
-                            <span>Закрыл: {doc.completed_by.full_name} {doc.completed_at && `в ${formatCardDate(doc.completed_at)}`}</span>
+                            <span>Закрыл: {doc.completed_by.full_name} {doc.completed_at && `— ${formatCardDate(doc.completed_at)}`}</span>
                           )}
                         </div>
                       )}
@@ -559,9 +567,9 @@ export default function App() {
                           <td className="p-2 font-normal text-slate-700 dark:text-slate-300 break-words whitespace-normal align-middle">
                             {item.raw_name}
                           </td>
-                          {/* ИСПРАВЛЕНО: Колонка ценников (Промо) сделана не жирной (font-normal) + красивый раздельный вывод цифр */}
+                          {/* ИСПРАВЛЕНО: Класс font-normal убирает жирность текста у ценников */}
                           <td className="p-2 text-right font-normal text-slate-900 dark:text-slate-100 break-all align-middle">
-                            {formatExcelPrice(item.price)}
+                            {formatDisplayPrice(item.price, selectedDoc?.doc_type)}
                           </td>
                         </tr>
                       ))}
