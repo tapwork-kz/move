@@ -105,13 +105,17 @@ export default function App() {
           }
 
           if (doc.doc_type === 'gift' || doc.doc_type === 'media') {
-            if (doc.doc_type === 'gift' && doc.status === 'new' && !hasStock(doc)) {
-              counts.processed++; 
-            } else if (doc.status === 'new' || doc.status === 'processed') {
+            // ИСПРАВЛЕНО: Для Подарков исключаем из бейджа те, у которых нет наличия на складе
+            if (doc.status === 'processed' || doc.doc_type === 'media' || (doc.status === 'new' && hasStock(doc))) {
               counts.gifts++; 
+            } else if (computedStatus === 'completed') {
+              counts.completed++;
+            } else if (computedStatus === 'archive') {
+              counts.archive++;
             }
           } else {
-            if (computedStatus === 'new' || computedStatus === 'processed') {
+            // ИСПРАВЛЕНО: Для Акций считаем в бейдж новые только если они реально есть в наличии на складе
+            if (computedStatus === 'processed' || (computedStatus === 'new' && hasStock(doc))) {
               counts.new++; 
             } else if (computedStatus === 'completed') {
               counts.completed++; 
@@ -553,7 +557,7 @@ export default function App() {
                       <tr className="bg-slate-100 dark:bg-slate-800 border-b dark:border-slate-700 text-slate-500 dark:text-slate-400 uppercase text-[9px] font-bold">
                         <th className="p-2 w-[85px] shrink-0">Статус</th>
                         <th className="p-2 text-left">{selectedDoc?.header_col1 || 'Наименование'}</th>
-                        <th className="p-2 text-right w-[85px] shrink-0">{selectedDoc?.header_col2 || 'Промо'}</th>
+                        <th className="p-2 text-right w-[85px] shrink-0">{selectedDoc?.header_col2 || 'Переоценка'}</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
