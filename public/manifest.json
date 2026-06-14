@@ -9,7 +9,8 @@
       "type": "image/png"
     }
   ],
-  "start_url": "/",
+  "start_url": "/move/",
+  "scope": "/move/",
   "background_color": "#0f172a",
   "theme_color": "#2563eb",
   "display": "standalone",
