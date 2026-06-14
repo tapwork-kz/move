@@ -418,17 +418,17 @@ export default function App() {
       </footer>
 
       {selectedDoc && (() => {
-  // Умное определение расширений файлов на лету
-  const isImg = selectedDoc.file_name?.match(/\.(jpeg|jpg|gif|png|webp)$/i) || selectedDoc.doc_type === 'media' && !selectedDoc.file_name?.toLowerCase().endsWith('.pdf');
-  const isPdf = selectedDoc.file_name?.toLowerCase().endsWith('.pdf');
-  const isMediaContent = selectedDoc.doc_type === 'media' || isImg || isPdf;
+  // Умное определение медиа-файлов (картинки, сканы, фото, pdf)
+  const isMediaContent = selectedDoc.doc_type === 'media' || selectedDoc.file_name?.match(/\.(jpeg|jpg|gif|png|webp|pdf)$/i);
   
-  // Извлекаем ID файла из Google Drive для трансформации ссылок
-  const driveId = selectedDoc.file_url?.includes('file/d/') ? selectedDoc.file_url.match(/file\/d\/([^/]+)/)?.[1] : null;
+  // Безопасное извлечение ID файла из любых форматов ссылок Google Drive
+  const driveId = selectedDoc.file_url?.includes('file/d/') 
+    ? selectedDoc.file_url.match(/file\/d\/([^/]+)/)?.[1] 
+    : (selectedDoc.file_url?.includes('id=') ? selectedDoc.file_url.match(/id=([^&]+)/)?.[1] : null);
   
-  // Собираем правильную ссылку: для картинок — прямой стрим, для PDF/Ворд — изолированный плеер
+  // Превращаем ссылку в универсальный и неуязвимый плеер preview
   const finalUrl = driveId 
-    ? (isImg ? `https://drive.google.com/uc?export=view&id=${driveId}` : `https://drive.google.com/file/d/${driveId}/preview`) 
+    ? `https://drive.google.com/file/d/${driveId}/preview` 
     : selectedDoc.file_url;
 
   return (
@@ -444,7 +444,7 @@ export default function App() {
           <button onClick={() => setSelectedDoc(null)} className="text-slate-400 hover:text-slate-600 p-1"><IconClose /></button>
         </div>
 
-        {/* ПОДВКЛАДКИ: Скрываются полностью, если это картинка или PDF */}
+        {/* ПОДВКЛАДКИ: Полноценно скрываются, если это картинка или PDF */}
         {!isMediaContent && (
           <div className="p-1 bg-slate-50 dark:bg-slate-950/40 border-b dark:border-slate-800 shrink-0">
             <div className="grid grid-cols-3 bg-slate-200/60 dark:bg-slate-800/60 p-0.5 rounded-lg text-slate-500 font-medium w-full">
@@ -461,7 +461,7 @@ export default function App() {
           </div>
         )}
 
-        {/* ПОИСК ПО СПЕЦИФИКАЦИИ: Скрывается для картинок и PDF */}
+        {/* ПОИСК ПО СПЕЦИФИКАЦИИ: Скрывается в режиме медиа */}
         {modalTab !== 'source' && !isMediaContent && (
           <div className="p-1.5 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 shrink-0">
             <input
@@ -476,20 +476,14 @@ export default function App() {
 
         {/* ГЛАВНЫЙ СЛУЖЕБНЫЙ КОНТЕНТ ОКНА */}
         <div className="flex-1 overflow-auto p-1.5 bg-slate-50 dark:bg-slate-950/20">
-          {isImg ? (
-            /* ОТРЕНДЕРЕННАЯ КАРТИНКА ЧЕРЕЗ ПРЯМОЙ СТРИМ */
-            <div className="flex items-center justify-center p-2 min-h-full bg-slate-950 rounded-lg">
-              <img src={finalUrl} className="max-w-full h-auto max-h-[75vh] object-contain rounded-lg shadow-2xl" alt="Вложение" />
-            </div>
-          ) : isPdf || modalTab === 'source' ? (
-            /* PDF ИЛИ ИСХОДНЫЙ ДОКУМЕНТ ЧЕРЕЗ БЕЗОПАСНЫЙ ИЗОЛИРОВАННЫЙ IFRAME PREVIEW */
+          {isMediaContent || modalTab === 'source' ? (
+            /* УНИВЕРСАЛЬНЫЙ ДЕТЕКТОР: Картинки и PDF открываются сразу на весь экран через нативный плеер */
             <div className="w-full h-full overflow-auto rounded-lg bg-white border border-slate-200 dark:border-slate-800 p-0 m-0" style={{ WebkitOverflowScrolling: 'touch' }}>
               <iframe src={finalUrl} width="100%" height="100%" className="w-full h-full min-h-[500px] border-none p-0 m-0" title="Doc" />
             </div>
           ) : filteredItems.length === 0 ? (
             <div className="text-center py-10 text-slate-400 text-xs font-bold uppercase">Ничего не найдено</div>
           ) : (
-            /* СТАНДАРТНАЯ ТАБЛИЦА НОМЕНКЛАТУР ДЛЯ PROMO И REVALUATION */
             <div className="overflow-x-auto border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-lg shadow-2xs">
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
