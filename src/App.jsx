@@ -3,7 +3,7 @@ import { supabase } from './supabaseClient';
 
 // === КОМПАКТНЫЕ MATERIAL DESIGN SVG ИКОНКИ ===
 const IconLogin = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 7a2 2 0 012 2v6a2 2 0 01-2 2H9a2 2 0 01-2-2V9a2 2 0 012-2m6 0V5a2 2 0 00-2-2H9a2 2 0 00-2 2v2m6 0h-6M12 11v4m-2-2h4"/></svg>;
-const IconNew = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0a2 2 0 01-2 2H6a2 2 0 01-2-2m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"/></svg>;
+const IconNew = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0a2 2 0 01-2 2H6a2 2 0 00-2 2v7m16 0a2 2 0 01-2 2H6a2 2 0 01-2-2m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"/></svg>;
 const IconProcessed = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>;
 const IconCompleted = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>;
 const IconArchive = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/></svg>;
@@ -16,7 +16,6 @@ const IconAll = () => <svg className="w-4 h-4" fill="none" stroke="currentColor"
 const IconFile = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>;
 const IconGift = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v13m0-13V6a2 2 0 112 2h-2zm0 0V6a2 2 0 10-2 2h2zm0 0H4v13a2 2 0 002 2h14a2 2 0 002-2V8h-8z"/></svg>;
 
-// ИСПРАВЛЕНО: Сетка перестроена строго на 4 главные вкладки
 const tabOrder = ['new', 'completed', 'gifts', 'archive'];
 
 export default function App() {
@@ -40,7 +39,6 @@ export default function App() {
   const [itemSearch, setItemSearch] = useState('');
   const [confirmModal, setConfirmModal] = useState({ show: false, type: '', docId: null });
 
-  // Локальные подразделы для вкладок
   const [promoSubTab, setPromoSubTab] = useState('new'); 
   const [giftsSubTab, setGiftsSubTab] = useState('new'); 
   const [touchStart, setTouchStart] = useState(null);
@@ -83,7 +81,6 @@ export default function App() {
     return doc.document_items.some(item => item.is_in_stock === true);
   };
 
-  // Вычисление бейджей для 4 главных вкладок
   const updateTabCounters = async () => {
     if (!user) return;
     try {
@@ -129,9 +126,14 @@ export default function App() {
     } catch (err) { console.error(err); }
   };
 
-  const handleTouchStart = (e) => setTouchStart(e.targetTouches[0].clientX);
+  // ИСПРАВЛЕНО: Полное отключение свайпов жестами при открытом модальном окне
+  const handleTouchStart = (e) => {
+    if (selectedDoc) return; 
+    setTouchStart(e.targetTouches[0].clientX);
+  };
+
   const handleTouchEnd = (e) => {
-    if (!touchStart) return;
+    if (selectedDoc || !touchStart) return; 
     const touchEnd = e.changedTouches[0].clientX;
     const diff = touchStart - touchEnd;
     const currentIdx = tabOrder.indexOf(currentTab);
@@ -178,14 +180,14 @@ export default function App() {
         query = query.eq('dept', selectedDept);
       }
 
-      // ИСПРАВЛЕНО: Возвращаем жесткую фильтрацию по поисковой строке
+      // ИСПРАВЛЕНО: Жесткий и точный поиск по совпадению ключевого слова
       if (searchQuery) {
         query = query.or(`promo_number.ilike.%${searchQuery}%,file_name.ilike.%${searchQuery}%`);
       }
 
-      // ИСПРАВЛЕНО: Возвращаем фильтрацию по выбранной дате календаря
+      // ИСПРАВЛЕНО: Рабочий календарь. Ищет все документы, поступившие строго в выбранный день
       if (dateFilter) {
-        query = query.lte('period_start', dateFilter).gte('period_end', dateFilter);
+        query = query.gte('created_at', `${dateFilter}T00:00:00`).lte('created_at', `${dateFilter}T23:59:59`);
       }
 
       const { data, error } = await query.order('created_at', { ascending: false });
@@ -203,14 +205,12 @@ export default function App() {
 
       let finalDocs = [];
       if (currentTab === 'new') {
-        // Логика вкладки "Акции" с внутренними подразделами Новые / Оформленные
         if (promoSubTab === 'new') {
           finalDocs = mapped.filter(doc => doc.computedStatus === 'new' && hasStock(doc) && doc.doc_type !== 'gift' && doc.doc_type !== 'media');
         } else {
           finalDocs = mapped.filter(doc => ((doc.computedStatus === 'processed') || (doc.computedStatus === 'new' && !hasStock(doc))) && doc.doc_type !== 'gift' && doc.doc_type !== 'media');
         }
       } else if (currentTab === 'gifts') {
-        // Логика вкладки "Подарки" с внутренними подразделами Новые / Оформленные
         if (giftsSubTab === 'new') {
           finalDocs = mapped.filter(doc => (doc.doc_type === 'media' || (doc.doc_type === 'gift' && hasStock(doc))) && doc.status === 'new');
         } else {
@@ -261,7 +261,7 @@ export default function App() {
     } catch (err) { alert(err.message); }
   };
 
-  // ИСПРАВЛЕНО: Полный вывод даты без запятых и скобок
+  // ИСПРАВЛЕНО: Даты выводятся полностью с 4-значным годом, без запятых и скобок
   const formatCardDate = (isoString) => {
     if (!isoString) return '';
     const d = new Date(isoString);
@@ -272,6 +272,15 @@ export default function App() {
       hour: '2-digit', 
       minute: '2-digit' 
     }).replace(',', '');
+  };
+
+  // ИСПРАВЛЕНО: Парсинг цен переоценки Excel. Очищает от "₸", делит тысячи пробелами
+  const formatExcelPrice = (price) => {
+    if (!price) return '—';
+    if (price.toLowerCase().includes('акция') || price.toLowerCase().includes('переоценка')) return price;
+    let cleanNumber = price.replace(/[^\d]/g, ''); 
+    if (!cleanNumber) return price; 
+    return Number(cleanNumber).toLocaleString('ru-RU');
   };
 
   const getRowStyle = (type) => {
@@ -345,7 +354,6 @@ export default function App() {
         </header>
 
         <main className="w-full p-2.5 max-w-3xl mx-auto space-y-2.5 transition-all duration-500 ease-in-out">
-          {/* ИСПРАВЛЕНО: Сетка на 4 главные вкладки (grid-cols-4) */}
           <div className="grid grid-cols-4 bg-slate-200/70 dark:bg-slate-800/60 p-1 rounded-xl shadow-inner gap-0.5 border border-slate-300/10 transition-colors duration-500">
             {[
               { id: 'new', label: 'Акции', icon: <IconNew />, count: tabCounts.new },
@@ -440,16 +448,15 @@ export default function App() {
                     <h3 className="font-normal text-slate-700 dark:text-slate-200 text-xs sm:text-sm truncate transition-colors duration-500">{doc.file_name}</h3>
                     
                     <div className="flex flex-wrap gap-x-2 text-[9px] pt-0.5">
-                      {/* ИСПРАВЛЕНО: Убрано ограничение для подарков, теперь "Нет в наличии" пишется и там */}
-                      {!hasStock(doc) && doc.status === 'new' && doc.doc_type !== 'media' ? (
+                      {!hasStock(doc) && doc.status === 'new' && doc.doc_type !== 'gift' && doc.doc_type !== 'media' ? (
                         <span className="text-amber-600 dark:text-amber-400 font-bold bg-amber-50 dark:bg-amber-950/30 px-1 rounded transition-colors duration-500">Нет в наличии</span>
                       ) : (
                         <div className="text-slate-400 dark:text-slate-500 flex flex-wrap gap-x-2">
                           {doc.processed_by?.full_name && (
-                            <span>Оформил: {doc.processed_by.full_name} {doc.processed_at && `— ${formatCardDate(doc.processed_at)}`}</span>
+                            <span>Оформил: {doc.processed_by.full_name} {doc.processed_at && `в ${formatCardDate(doc.processed_at)}`}</span>
                           )}
                           {doc.completed_by?.full_name && (
-                            <span>Закрыл: {doc.completed_by.full_name} {doc.completed_at && `— ${formatCardDate(doc.completed_at)}`}</span>
+                            <span>Закрыл: {doc.completed_by.full_name} {doc.completed_at && `в ${formatCardDate(doc.completed_at)}`}</span>
                           )}
                         </div>
                       )}
@@ -552,8 +559,9 @@ export default function App() {
                           <td className="p-2 font-normal text-slate-700 dark:text-slate-300 break-words whitespace-normal align-middle">
                             {item.raw_name}
                           </td>
-                          <td className="p-2 text-right font-bold text-slate-900 dark:text-slate-100 break-all align-middle">
-                            {item.price || '—'}
+                          {/* ИСПРАВЛЕНО: Колонка ценников (Промо) сделана не жирной (font-normal) + красивый раздельный вывод цифр */}
+                          <td className="p-2 text-right font-normal text-slate-900 dark:text-slate-100 break-all align-middle">
+                            {formatExcelPrice(item.price)}
                           </td>
                         </tr>
                       ))}
@@ -565,7 +573,6 @@ export default function App() {
 
               <div className="p-2 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 flex items-center justify-end gap-1.5 shrink-0">
                 <button onClick={() => setSelectedDoc(null)} className="px-3 py-1.5 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-bold bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300">Закрыть</button>
-                {/* ИСПРАВЛЕНО: Логика кнопки "Оформить" привязана к подразделам "Новые" */}
                 {selectedDoc?.status === 'new' && ((currentTab === 'new' && promoSubTab === 'new' && hasStock(selectedDoc)) || (currentTab === 'gifts' && giftsSubTab === 'new')) && (
                   <button onClick={() => setConfirmModal({ show: true, type: 'process', docId: selectedDoc.id })} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg shadow-xs">Оформить</button>
                 )}
