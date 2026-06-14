@@ -16,7 +16,8 @@ const IconAll = () => <svg className="w-4 h-4" fill="none" stroke="currentColor"
 const IconFile = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>;
 const IconGift = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v13m0-13V6a2 2 0 112 2h-2zm0 0V6a2 2 0 10-2 2h2zm0 0H4v13a2 2 0 002 2h14a2 2 0 002-2V8h-8z"/></svg>;
 
-const tabOrder = ['new', 'processed', 'completed', 'gifts', 'archive'];
+// ИСПРАВЛЕНО: Сетка перестроена строго на 4 главные вкладки
+const tabOrder = ['new', 'completed', 'gifts', 'archive'];
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -31,7 +32,7 @@ export default function App() {
 
   const [documents, setDocuments] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [tabCounts, setTabCounts] = useState({ new: 0, processed: 0, completed: 0, gifts: 0, archive: 0 });
+  const [tabCounts, setTabCounts] = useState({ new: 0, completed: 0, gifts: 0, archive: 0 });
 
   const [selectedDoc, setSelectedDoc] = useState(null);
   const [docItems, setDocItems] = useState([]);
@@ -39,11 +40,12 @@ export default function App() {
   const [itemSearch, setItemSearch] = useState('');
   const [confirmModal, setConfirmModal] = useState({ show: false, type: '', docId: null });
 
-  const [giftsSubTab, setGiftsSubTab] = useState('new'); // Внутренний подраздел для подарков
+  // Локальные подразделы для вкладок
+  const [promoSubTab, setPromoSubTab] = useState('new'); 
+  const [giftsSubTab, setGiftsSubTab] = useState('new'); 
   const [touchStart, setTouchStart] = useState(null);
   const departments = ["#Цифра 🟠", "#МБТ 🟡", "#КБТ 🔵", "#Другое"];
 
-  // Исправленный блок инициализации авторизации
   useEffect(() => {
     const savedUser = localStorage.getItem('promo_app_user');
     if (savedUser && savedUser !== 'null' && savedUser !== 'undefined') {
@@ -74,13 +76,14 @@ export default function App() {
     };
     window.addEventListener('focus', handleWindowFocus);
     return () => window.removeEventListener('focus', handleWindowFocus);
-  }, [currentTab, selectedDept, searchQuery, dateFilter, giftsSubTab, user]);
+  }, [currentTab, selectedDept, searchQuery, dateFilter, promoSubTab, giftsSubTab, user]);
 
   const hasStock = (doc) => {
     if (!doc?.document_items || doc.document_items.length === 0) return true;
     return doc.document_items.some(item => item.is_in_stock === true);
   };
 
+  // Вычисление бейджей для 4 главных вкладок
   const updateTabCounters = async () => {
     if (!user) return;
     try {
@@ -94,7 +97,7 @@ export default function App() {
       const { data } = await query;
       if (data) {
         const todayStr = new Date().toISOString().split('T')[0];
-        const counts = { new: 0, processed: 0, completed: 0, gifts: 0, archive: 0 };
+        const counts = { new: 0, completed: 0, gifts: 0, archive: 0 };
         
         data.forEach(doc => {
           let computedStatus = doc.status;
@@ -103,18 +106,22 @@ export default function App() {
             else if (doc.status === 'processed') computedStatus = 'completed';
           }
 
-          // Проверяем: это подарок (текстовый или медиа)
           if (doc.doc_type === 'gift' || doc.doc_type === 'media') {
-            // Если это обычный подарок из Ворда, но его НЕТ на складе — переносим в Оформленные
-            if (doc.doc_type === 'gift' && !hasStock(doc)) {
-              counts.processed++;
-            } else {
-              counts.gifts++; // Картинки и подарки в наличии остаются тут
+            if (doc.status === 'new' || doc.status === 'processed') {
+              counts.gifts++; 
+            } else if (computedStatus === 'completed') {
+              counts.completed++;
+            } else if (computedStatus === 'archive') {
+              counts.archive++;
             }
-          } else if (computedStatus === 'new' && !hasStock(doc)) {
-            counts.processed++; 
-          } else if (counts[computedStatus] !== undefined) {
-            counts[computedStatus]++;
+          } else {
+            if (computedStatus === 'new' || computedStatus === 'processed') {
+              counts.new++; 
+            } else if (computedStatus === 'completed') {
+              counts.completed++; 
+            } else if (computedStatus === 'archive') {
+              counts.archive++;
+            }
           }
         });
         setTabCounts(counts);
@@ -185,21 +192,23 @@ export default function App() {
       });
 
       let finalDocs = [];
-      if (currentTab === 'gifts') {
-        // Подарки показываются только если это картинка ИЛИ ворд-подарок, который ЕСТЬ в наличии
-        finalDocs = mapped.filter(doc => doc.doc_type === 'media' || (doc.doc_type === 'gift' && hasStock(doc)));
-      } else if (currentTab === 'new') {
-        finalDocs = mapped.filter(doc => doc.computedStatus === 'new' && hasStock(doc) && doc.doc_type !== 'gift' && doc.doc_type !== 'media');
-      } else if (currentTab === 'processed') {
-        // В Оформленные попадают: оформленные акции, акции без наличия И подарки без наличия (кроме картинок)
-        finalDocs = mapped.filter(doc => 
-          (doc.computedStatus === 'processed' && doc.doc_type !== 'gift' && doc.doc_type !== 'media') || 
-          (doc.computedStatus === 'new' && !hasStock(doc) && doc.doc_type !== 'media')
-        );
+      if (currentTab === 'new') {
+        // Логика вкладки "Акции" с внутренними подразделами Новые / Оформленные
+        if (promoSubTab === 'new') {
+          finalDocs = mapped.filter(doc => doc.computedStatus === 'new' && hasStock(doc) && doc.doc_type !== 'gift' && doc.doc_type !== 'media');
+        } else {
+          finalDocs = mapped.filter(doc => ((doc.computedStatus === 'processed') || (doc.computedStatus === 'new' && !hasStock(doc))) && doc.doc_type !== 'gift' && doc.doc_type !== 'media');
+        }
+      } else if (currentTab === 'gifts') {
+        // Логика вкладки "Подарки" с внутренними подразделами Новые / Оформленные
+        if (giftsSubTab === 'new') {
+          finalDocs = mapped.filter(doc => (doc.doc_type === 'media' || (doc.doc_type === 'gift' && hasStock(doc))) && doc.status === 'new');
+        } else {
+          finalDocs = mapped.filter(doc => (doc.doc_type === 'media' || doc.doc_type === 'gift') && (doc.status === 'processed' || (doc.doc_type === 'gift' && !hasStock(doc) && doc.status === 'new')));
+        }
       } else if (currentTab === 'completed') {
-        finalDocs = mapped.filter(doc => doc.computedStatus === 'completed' && doc.doc_type !== 'gift' && doc.doc_type !== 'media');
+        finalDocs = mapped.filter(doc => doc.computedStatus === 'completed');
       } else if (currentTab === 'archive') {
-        // В архив улетают старые обычные акции, а также просроченные акции/подарки без наличия
         finalDocs = mapped.filter(doc => 
           (doc.computedStatus === 'archive') || 
           (doc.period_end && doc.period_end < todayStr && !hasStock(doc) && doc.doc_type !== 'media')
@@ -242,10 +251,17 @@ export default function App() {
     } catch (err) { alert(err.message); }
   };
 
+  // ИСПРАВЛЕНО: Полный вывод даты без запятых и скобок
   const formatCardDate = (isoString) => {
     if (!isoString) return '';
     const d = new Date(isoString);
-    return d.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    return d.toLocaleString('ru-RU', { 
+      day: '2-digit', 
+      month: '2-digit', 
+      year: 'numeric', 
+      hour: '2-digit', 
+      minute: '2-digit' 
+    }).replace(',', '');
   };
 
   const getRowStyle = (type) => {
@@ -319,10 +335,10 @@ export default function App() {
         </header>
 
         <main className="w-full p-2.5 max-w-3xl mx-auto space-y-2.5 transition-all duration-500 ease-in-out">
-          <div className="grid grid-cols-5 bg-slate-200/70 dark:bg-slate-800/60 p-1 rounded-xl shadow-inner gap-0.5 border border-slate-300/10 transition-colors duration-500">
+          {/* ИСПРАВЛЕНО: Сетка на 4 главные вкладки (grid-cols-4) */}
+          <div className="grid grid-cols-4 bg-slate-200/70 dark:bg-slate-800/60 p-1 rounded-xl shadow-inner gap-0.5 border border-slate-300/10 transition-colors duration-500">
             {[
               { id: 'new', label: 'Акции', icon: <IconNew />, count: tabCounts.new },
-              { id: 'processed', label: 'Оформленные', icon: <IconProcessed />, count: tabCounts.processed },
               { id: 'completed', label: 'Завершенные', icon: <IconCompleted />, count: tabCounts.completed },
               { id: 'gifts', label: 'Подарки', icon: <IconGift />, count: tabCounts.gifts },
               { id: 'archive', label: 'Архив', icon: <IconArchive />, count: tabCounts.archive }
@@ -342,6 +358,30 @@ export default function App() {
               </button>
             ))}
           </div>
+
+          {/* ПОДРАЗДЕЛЫ ДЛЯ ВКЛАДКИ АКЦИИ */}
+          {currentTab === 'new' && (
+            <div className="grid grid-cols-2 bg-slate-200/60 dark:bg-slate-800/60 p-1 rounded-lg shadow-inner gap-1 max-w-[220px] mx-auto mt-1 transition-all duration-500 ease-in-out border border-slate-300/10">
+              <button onClick={() => setPromoSubTab('new')} className={`py-1 text-[11px] font-bold rounded-md transition-all duration-300 ${promoSubTab === 'new' ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-2xs' : 'text-slate-500 dark:text-slate-400'}`}>
+                Новые
+              </button>
+              <button onClick={() => setPromoSubTab('processed')} className={`py-1 text-[11px] font-bold rounded-md transition-all duration-300 ${promoSubTab === 'processed' ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-2xs' : 'text-slate-500 dark:text-slate-400'}`}>
+                Оформленные
+              </button>
+            </div>
+          )}
+
+          {/* ПОДРАЗДЕЛЫ ДЛЯ ВКЛАДКИ ПОДАРКИ */}
+          {currentTab === 'gifts' && (
+            <div className="grid grid-cols-2 bg-slate-200/60 dark:bg-slate-800/60 p-1 rounded-lg shadow-inner gap-1 max-w-[220px] mx-auto mt-1 transition-all duration-500 ease-in-out border border-slate-300/10">
+              <button onClick={() => setGiftsSubTab('new')} className={`py-1 text-[11px] font-bold rounded-md transition-all duration-300 ${giftsSubTab === 'new' ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-2xs' : 'text-slate-500 dark:text-slate-400'}`}>
+                Новые
+              </button>
+              <button onClick={() => setGiftsSubTab('processed')} className={`py-1 text-[11px] font-bold rounded-md transition-all duration-300 ${giftsSubTab === 'processed' ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-2xs' : 'text-slate-500 dark:text-slate-400'}`}>
+                Оформленные
+              </button>
+            </div>
+          )}
 
           <div className="flex items-center gap-1.5">
             <div className="relative flex-1">
@@ -390,15 +430,16 @@ export default function App() {
                     <h3 className="font-normal text-slate-700 dark:text-slate-200 text-xs sm:text-sm truncate transition-colors duration-500">{doc.file_name}</h3>
                     
                     <div className="flex flex-wrap gap-x-2 text-[9px] pt-0.5">
-                      {!hasStock(doc) && doc.status === 'new' ? (
+                      {!hasStock(doc) && doc.status === 'new' && doc.doc_type !== 'gift' && doc.doc_type !== 'media' ? (
                         <span className="text-amber-600 dark:text-amber-400 font-bold bg-amber-50 dark:bg-amber-950/30 px-1 rounded transition-colors duration-500">Нет в наличии</span>
                       ) : (
                         <div className="text-slate-400 dark:text-slate-500 flex flex-wrap gap-x-2">
+                          {/* ИСПРАВЛЕНО: Даты выведены полностью без скобок */}
                           {doc.processed_by?.full_name && (
-                            <span>Оформил: {doc.processed_by.full_name} {doc.processed_at && `в (${formatCardDate(doc.processed_at)})`}</span>
+                            <span>Оформил: {doc.processed_by.full_name} {doc.processed_at && `в ${formatCardDate(doc.processed_at)}`}</span>
                           )}
                           {doc.completed_by?.full_name && (
-                            <span>Закрыл: {doc.completed_by.full_name} {doc.completed_at && `в (${formatCardDate(doc.completed_at)})`}</span>
+                            <span>Закрыл: {doc.completed_by.full_name} {doc.completed_at && `в ${formatCardDate(doc.completed_at)}`}</span>
                           )}
                         </div>
                       )}
@@ -423,147 +464,134 @@ export default function App() {
       </footer>
 
       {selectedDoc && (() => {
-  // Умное определение медиа-файлов (картинки, сканы, фото, pdf)
-  const isMediaContent = selectedDoc.doc_type === 'media' || selectedDoc.file_name?.match(/\.(jpeg|jpg|gif|png|webp|pdf)$/i);
-  
-  // Безопасное извлечение ID файла из любых форматов ссылок Google Drive
-  const driveId = selectedDoc.file_url?.includes('file/d/') 
-    ? selectedDoc.file_url.match(/file\/d\/([^/]+)/)?.[1] 
-    : (selectedDoc.file_url?.includes('id=') ? selectedDoc.file_url.match(/id=([^&]+)/)?.[1] : null);
-  
-  // Превращаем ссылку в универсальный и неуязвимый плеер preview
-  const finalUrl = driveId 
-    ? `https://drive.google.com/file/d/${driveId}/preview` 
-    : selectedDoc.file_url;
-
-  return (
-    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-40 flex items-center justify-center p-1 sm:p-2 transition-all duration-500 ease-in-out">
-      <div className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl max-w-7xl w-full h-[92vh] flex flex-col overflow-hidden border dark:border-slate-800 transition-all duration-500 ease-in-out">
+        const isMediaContent = selectedDoc.doc_type === 'media' || selectedDoc.file_name?.match(/\.(jpeg|jpg|gif|png|webp|pdf)$/i);
         
-        {/* ШАПКА МОДАЛЬНОГО ОКНА */}
-        <div className="p-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 flex items-center justify-between transition-colors duration-500">
-          <div className="min-w-0 flex-1 pr-3">
-            <span className="text-[9px] font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/50 px-1 py-0.2 rounded border border-blue-200 uppercase tracking-wider">{selectedDoc.promo_number || 'Документ'}</span>
-            <h2 className="text-xs font-bold text-slate-900 dark:text-slate-100 mt-0.5 truncate">{selectedDoc.file_name}</h2>
-          </div>
-          <button onClick={() => setSelectedDoc(null)} className="text-slate-400 hover:text-slate-600 p-1"><IconClose /></button>
-        </div>
+        const driveId = selectedDoc.file_url?.includes('file/d/') 
+          ? selectedDoc.file_url.match(/file\/d\/([^/]+)/)?.[1] 
+          : (selectedDoc.file_url?.includes('id=') ? selectedDoc.file_url.match(/id=([^&]+)/)?.[1] : null);
+        
+        const finalUrl = driveId 
+          ? `https://drive.google.com/file/d/${driveId}/preview` 
+          : selectedDoc.file_url;
 
-        {/* ПОДВКЛАДКИ: Полноценно скрываются, если это картинка или PDF */}
-        {!isMediaContent && (
-          <div className="p-1 bg-slate-50 dark:bg-slate-950/40 border-b dark:border-slate-800 shrink-0">
-            <div className="grid grid-cols-3 bg-slate-200/60 dark:bg-slate-800/60 p-0.5 rounded-lg text-slate-500 font-medium w-full">
-              <button onClick={() => setModalTab('in_stock')} className={`flex items-center justify-center gap-1 py-1 text-[10px] sm:text-xs rounded-md transition-all ${modalTab === 'in_stock' ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-2xs' : ''}`}>
-                <IconStock /> В наличии ({docItems.filter(i => i.is_in_stock).length})
-              </button>
-              <button onClick={() => setModalTab('all')} className={`flex items-center justify-center gap-1 py-1 text-[10px] sm:text-xs rounded-md transition-all ${modalTab === 'all' ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-2xs' : ''}`}>
-                <IconAll /> Все ({docItems.length})
-              </button>
-              <button onClick={() => setModalTab('source')} className={`flex items-center justify-center gap-1 py-1 text-[10px] sm:text-xs rounded-md transition-all ${modalTab === 'source' ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-2xs' : ''}`}>
-                <IconFile /> Документ
-              </button>
+        return (
+          <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-40 flex items-center justify-center p-1 sm:p-2 transition-all duration-500 ease-in-out">
+            <div className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl max-w-7xl w-full h-[92vh] flex flex-col overflow-hidden border dark:border-slate-800 transition-all duration-500 ease-in-out">
+              
+              <div className="p-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 flex items-center justify-between transition-colors duration-500">
+                <div className="min-w-0 flex-1 pr-3">
+                  <span className="text-[9px] font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/50 px-1 py-0.2 rounded border border-blue-200 uppercase tracking-wider">{selectedDoc.promo_number || 'Документ'}</span>
+                  <h2 className="text-xs font-bold text-slate-900 dark:text-slate-100 mt-0.5 truncate">{selectedDoc.file_name}</h2>
+                </div>
+                <button onClick={() => setSelectedDoc(null)} className="text-slate-400 hover:text-slate-600 p-1"><IconClose /></button>
+              </div>
+
+              {!isMediaContent && (
+                <div className="p-1 bg-slate-50 dark:bg-slate-950/40 border-b dark:border-slate-800 shrink-0">
+                  <div className="grid grid-cols-3 bg-slate-200/60 dark:bg-slate-800/60 p-0.5 rounded-lg text-slate-500 font-medium w-full">
+                    <button onClick={() => setModalTab('in_stock')} className={`flex items-center justify-center gap-1 py-1 text-[10px] sm:text-xs rounded-md transition-all ${modalTab === 'in_stock' ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-2xs' : ''}`}>
+                      <IconStock /> В наличии ({docItems.filter(i => i.is_in_stock).length})
+                    </button>
+                    <button onClick={() => setModalTab('all')} className={`flex items-center justify-center gap-1 py-1 text-[10px] sm:text-xs rounded-md transition-all ${modalTab === 'all' ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-2xs' : ''}`}>
+                      <IconAll /> Все ({docItems.length})
+                    </button>
+                    <button onClick={() => setModalTab('source')} className={`flex items-center justify-center gap-1 py-1 text-[10px] sm:text-xs rounded-md transition-all ${modalTab === 'source' ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-2xs' : ''}`}>
+                      <IconFile /> Документ
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {modalTab !== 'source' && !isMediaContent && (
+                <div className="p-1.5 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 shrink-0">
+                  <input
+                    type="text"
+                    placeholder="Поиск товара по спецификации..."
+                    className="w-full p-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg outline-none text-xs font-medium dark:text-white"
+                    value={itemSearch}
+                    onChange={e => setItemSearch(e.target.value)}
+                  />
+                </div>
+              )}
+
+              <div className="flex-1 overflow-auto p-1.5 bg-slate-50 dark:bg-slate-950/20">
+                {isMediaContent || modalTab === 'source' ? (
+                  <div className="w-full h-full overflow-auto rounded-lg bg-white border border-slate-200 dark:border-slate-800 p-0 m-0" style={{ WebkitOverflowScrolling: 'touch' }}>
+                    <iframe src={finalUrl} width="100%" height="100%" className="w-full h-full min-h-[500px] border-none p-0 m-0" title="Doc" />
+                  </div>
+                ) : filteredItems.length === 0 ? (
+                  <div className="text-center py-10 text-slate-400 text-xs font-bold uppercase">Ничего не найдено</div>
+                ) : (
+                <div className="w-full overflow-hidden border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-lg shadow-2xs">
+                  <table className="w-full table-fixed border-collapse text-xs">
+                    <thead>
+                      <tr className="bg-slate-100 dark:bg-slate-800 border-b dark:border-slate-700 text-slate-500 dark:text-slate-400 uppercase text-[9px] font-bold">
+                        <th className="p-2 w-[85px] shrink-0">Статус</th>
+                        <th className="p-2 text-left">{selectedDoc?.header_col1 || 'Наименование'}</th>
+                        <th className="p-2 text-right w-[85px] shrink-0">{selectedDoc?.header_col2 || 'Промо'}</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                      {filteredItems.map(item => (
+                        <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition">
+                          <td className="p-2 whitespace-nowrap overflow-hidden">
+                            <span className={`px-1 py-0.2 rounded text-[8px] font-bold border ${getRowStyle(item.change_type)}`}>
+                              {item.change_type === 'green' ? 'Добавлен' : item.change_type === 'red' ? 'Удален' : item.change_type === 'yellow' ? 'Цена' : 'База'}
+                            </span>
+                          </td>
+                          <td className="p-2 font-normal text-slate-700 dark:text-slate-300 break-words whitespace-normal align-middle">
+                            {item.raw_name}
+                          </td>
+                          <td className="p-2 text-right font-bold text-slate-900 dark:text-slate-100 break-all align-middle">
+                            {item.price || '—'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              </div>
+
+              <div className="p-2 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 flex items-center justify-end gap-1.5 shrink-0">
+                <button onClick={() => setSelectedDoc(null)} className="px-3 py-1.5 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-bold bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300">Закрыть</button>
+                {/* ИСПРАВЛЕНО: Логика кнопки "Оформить" привязана к подразделам "Новые" */}
+                {selectedDoc?.status === 'new' && ((currentTab === 'new' && promoSubTab === 'new' && hasStock(selectedDoc)) || (currentTab === 'gifts' && giftsSubTab === 'new')) && (
+                  <button onClick={() => setConfirmModal({ show: true, type: 'process', docId: selectedDoc.id })} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg shadow-xs">Оформить</button>
+                )}
+                {currentTab === 'completed' && (
+                  <button onClick={() => setConfirmModal({ show: true, type: 'archive', docId: selectedDoc.id })} className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white text-xs font-bold rounded-lg shadow-xs">Ценники обновлены</button>
+                )}
+              </div>
             </div>
           </div>
-        )}
+        );
+      })()}
 
-        {/* ПОИСК ПО СПЕЦИФИКАЦИИ: Скрывается в режиме медиа */}
-        {modalTab !== 'source' && !isMediaContent && (
-          <div className="p-1.5 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 shrink-0">
-            <input
-              type="text"
-              placeholder="Поиск товара по спецификации..."
-              className="w-full p-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg outline-none text-xs font-medium dark:text-white"
-              value={itemSearch}
-              onChange={e => setItemSearch(e.target.value)}
-            />
-          </div>
-        )}
-
-        {/* ГЛАВНЫЙ СЛУЖЕБНЫЙ КОНТЕНТ ОКНА */}
-        <div className="flex-1 overflow-auto p-1.5 bg-slate-50 dark:bg-slate-950/20">
-          {isMediaContent || modalTab === 'source' ? (
-            /* УНИВЕРСАЛЬНЫЙ ДЕТЕКТОР: Картинки и PDF открываются сразу на весь экран через нативный плеер */
-            <div className="w-full h-full overflow-auto rounded-lg bg-white border border-slate-200 dark:border-slate-800 p-0 m-0" style={{ WebkitOverflowScrolling: 'touch' }}>
-              <iframe src={finalUrl} width="100%" height="100%" className="w-full h-full min-h-[500px] border-none p-0 m-0" title="Doc" />
+      {confirmModal.show && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 p-5 rounded-xl max-w-xs w-full shadow-2xl text-center border dark:border-slate-800">
+            <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 mb-1">Подтверждение</h3>
+            <p className="text-[11px] text-slate-400 dark:text-slate-500 mb-4 leading-relaxed">
+              {confirmModal.type === 'process' ? 'Оформить промо-акцию?' : 'Ценники обновлены?'}
+            </p>
+            <div className="flex gap-2">
+              <button onClick={() => setConfirmModal({ show: false, type: '', docId: null })} className="px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg font-bold text-xs text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 flex-1">Отмена</button>
+              <button onClick={executeStatusChange} className="px-3 py-2 text-white font-bold text-xs bg-blue-600 hover:bg-blue-700 rounded-lg flex-1">ОК</button>
             </div>
-          ) : filteredItems.length === 0 ? (
-            <div className="text-center py-10 text-slate-400 text-xs font-bold uppercase">Ничего не найдено</div>
-          ) : (
-          /* Фиксируем контейнер по ширине без горизонтального скролла */
-          <div className="w-full overflow-hidden border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-lg shadow-2xs">
-            <table className="w-full table-fixed border-collapse text-xs">
-              <thead>
-                <tr className="bg-slate-100 dark:bg-slate-800 border-b dark:border-slate-700 text-slate-500 dark:text-slate-400 uppercase text-[9px] font-bold">
-                  {/* Задаем жесткую ширину для колонки статуса */}
-                  <th className="p-2 w-[85px] shrink-0">Статус</th>
-                  {/* Центральная колонка занимает всё оставшееся пространство */}
-                  <th className="p-2 text-left">{selectedDoc?.header_col1 || 'Наименование'}</th>
-                  {/* Задаем жесткую ширину для колонки ценников */}
-                  <th className="p-2 text-right w-[85px] shrink-0">{selectedDoc?.header_col2 || 'Промо'}</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {filteredItems.map(item => (
-                  <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition">
-                    <td className="p-2 whitespace-nowrap overflow-hidden">
-                      <span className={`px-1 py-0.2 rounded text-[8px] font-bold border ${getRowStyle(item.change_type)}`}>
-                        {item.change_type === 'green' ? 'Добавлен' : item.change_type === 'red' ? 'Удален' : item.change_type === 'yellow' ? 'Цена' : 'База'}
-                      </span>
-                    </td>
-                    {/* Перенос длинного текста по словам с корректным отступом */}
-                    <td className="p-2 font-normal text-slate-700 dark:text-slate-300 break-words whitespace-normal align-middle">
-                      {item.raw_name}
-                    </td>
-                    <td className="p-2 text-right font-bold text-slate-900 dark:text-slate-100 break-all align-middle">
-                      {item.price || '—'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
           </div>
-        )}
         </div>
+      )}
 
-        {/* НИЖНЯЯ ПАНЕЛЬ С УПРАВЛЯЮЩИМИ КНОПКАМИ */}
-        <div className="p-2 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 flex items-center justify-end gap-1.5 shrink-0">
-          <button onClick={() => setSelectedDoc(null)} className="px-3 py-1.5 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-bold bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300">Закрыть</button>
-          {currentTab === 'new' && hasStock(selectedDoc) && (
-            <button onClick={() => setConfirmModal({ show: true, type: 'process', docId: selectedDoc.id })} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg shadow-xs">Оформить акцию</button>
-          )}
-          {currentTab === 'completed' && (
-            <button onClick={() => setConfirmModal({ show: true, type: 'archive', docId: selectedDoc.id })} className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white text-xs font-bold rounded-lg shadow-xs">Ценники обновлены</button>
-          )}
-        </div>
-      </div>
+      <style>{`
+        .style-bounce-scroll {
+          scroll-behavior: smooth;
+          -webkit-overflow-scrolling: touch;
+        }
+        .style-bounce-scroll:active {
+          overscroll-behavior-y: contain;
+        }
+      `}</style>
     </div>
   );
-})()}
-
-{confirmModal.show && (
-  <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-    <div className="bg-white dark:bg-slate-900 p-5 rounded-xl max-w-xs w-full shadow-2xl text-center border dark:border-slate-800">
-      <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 mb-1">Подтверждение</h3>
-      <p className="text-[11px] text-slate-400 dark:text-slate-500 mb-4 leading-relaxed">
-        {confirmModal.type === 'process' ? 'Оформить промо-акцию?' : 'Ценники обновлены?'}
-      </p>
-      <div className="flex gap-2">
-        <button onClick={() => setConfirmModal({ show: false, type: '', docId: null })} className="px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg font-bold text-xs text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 flex-1">Отмена</button>
-        <button onClick={executeStatusChange} className="px-3 py-2 text-white font-bold text-xs bg-blue-600 hover:bg-blue-700 rounded-lg flex-1">ОК</button>
-      </div>
-    </div>
-  </div>
-)}
-
-<style>{`
-  .style-bounce-scroll {
-    scroll-behavior: smooth;
-    -webkit-overflow-scrolling: touch;
-  }
-  .style-bounce-scroll:active {
-    overscroll-behavior-y: contain;
-  }
-`}</style>
-</div>
-);
 }
