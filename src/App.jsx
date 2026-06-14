@@ -186,7 +186,8 @@ export default function App() {
       `);
 
       if (user.role !== 'Директор' && user.role !== 'Супервайзер') {
-        query = query.in('dept', [user.dept, '#Другое']);
+        // ИСПРАВЛЕНО: Заменили % на * чтобы шлюз Supabase не выдавал ошибку адресации 404
+        query = query.or(`dept.ilike.*${user.dept}*,dept.ilike.*Другое*`);
       } else if (selectedDept) {
         query = query.eq('dept', selectedDept);
       }
