@@ -484,31 +484,40 @@ export default function App() {
           ) : filteredItems.length === 0 ? (
             <div className="text-center py-10 text-slate-400 text-xs font-bold uppercase">Ничего не найдено</div>
           ) : (
-            <div className="overflow-x-auto border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-lg shadow-2xs">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead>
-                  <tr className="bg-slate-100 dark:bg-slate-800 border-b dark:border-slate-700 text-slate-500 dark:text-slate-400 uppercase text-[9px] font-bold">
-                    <th className="p-2">Статус</th>
-                    <th className="p-2">{selectedDoc?.header_col1 || 'Наименование'}</th>
-                    <th className="p-2 text-right">{selectedDoc?.header_col2 || 'Промо'}</th>
+          /* Фиксируем контейнер по ширине без горизонтального скролла */
+          <div className="w-full overflow-hidden border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-lg shadow-2xs">
+            <table className="w-full table-fixed border-collapse text-xs">
+              <thead>
+                <tr className="bg-slate-100 dark:bg-slate-800 border-b dark:border-slate-700 text-slate-500 dark:text-slate-400 uppercase text-[9px] font-bold">
+                  {/* Задаем жесткую ширину для колонки статуса */}
+                  <th className="p-2 w-[85px] shrink-0">Статус</th>
+                  {/* Центральная колонка занимает всё оставшееся пространство */}
+                  <th className="p-2 text-left">{selectedDoc?.header_col1 || 'Наименование'}</th>
+                  {/* Задаем жесткую ширину для колонки ценников */}
+                  <th className="p-2 text-right w-[85px] shrink-0">{selectedDoc?.header_col2 || 'Промо'}</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {filteredItems.map(item => (
+                  <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition">
+                    <td className="p-2 whitespace-nowrap overflow-hidden">
+                      <span className={`px-1 py-0.2 rounded text-[8px] font-bold border ${getRowStyle(item.change_type)}`}>
+                        {item.change_type === 'green' ? 'Добавлен' : item.change_type === 'red' ? 'Удален' : item.change_type === 'yellow' ? 'Цена' : 'База'}
+                      </span>
+                    </td>
+                    {/* Перенос длинного текста по словам с корректным отступом */}
+                    <td className="p-2 font-normal text-slate-700 dark:text-slate-300 break-words whitespace-normal align-middle">
+                      {item.raw_name}
+                    </td>
+                    <td className="p-2 text-right font-bold text-slate-900 dark:text-slate-100 break-all align-middle">
+                      {item.price || '—'}
+                    </td>
                   </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {filteredItems.map(item => (
-                    <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition">
-                      <td className="p-2">
-                        <span className={`px-1 py-0.2 rounded text-[8px] font-bold border ${getRowStyle(item.change_type)}`}>
-                          {item.change_type === 'green' ? 'Добавлен' : item.change_type === 'red' ? 'Удален' : item.change_type === 'yellow' ? 'Цена' : 'База'}
-                        </span>
-                      </td>
-                      <td className="p-2 font-normal text-slate-700 dark:text-slate-300 break-words">{item.raw_name}</td>
-                      <td className="p-2 text-right font-bold text-slate-900 dark:text-slate-100 whitespace-nowrap">{item.price || '—'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
         </div>
 
         {/* НИЖНЯЯ ПАНЕЛЬ С УПРАВЛЯЮЩИМИ КНОПКАМИ */}
