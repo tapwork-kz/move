@@ -178,6 +178,16 @@ export default function App() {
         query = query.eq('dept', selectedDept);
       }
 
+      // ИСПРАВЛЕНО: Возвращаем жесткую фильтрацию по поисковой строке
+      if (searchQuery) {
+        query = query.or(`promo_number.ilike.%${searchQuery}%,file_name.ilike.%${searchQuery}%`);
+      }
+
+      // ИСПРАВЛЕНО: Возвращаем фильтрацию по выбранной дате календаря
+      if (dateFilter) {
+        query = query.lte('period_start', dateFilter).gte('period_end', dateFilter);
+      }
+
       const { data, error } = await query.order('created_at', { ascending: false });
       if (error) throw error;
 
@@ -436,10 +446,10 @@ export default function App() {
                       ) : (
                         <div className="text-slate-400 dark:text-slate-500 flex flex-wrap gap-x-2">
                           {doc.processed_by?.full_name && (
-                            <span>Оформил: {doc.processed_by.full_name} {doc.processed_at && `в ${formatCardDate(doc.processed_at)}`}</span>
+                            <span>Оформил: {doc.processed_by.full_name} {doc.processed_at && `— ${formatCardDate(doc.processed_at)}`}</span>
                           )}
                           {doc.completed_by?.full_name && (
-                            <span>Закрыл: {doc.completed_by.full_name} {doc.completed_at && `в ${formatCardDate(doc.completed_at)}`}</span>
+                            <span>Закрыл: {doc.completed_by.full_name} {doc.completed_at && `— ${formatCardDate(doc.completed_at)}`}</span>
                           )}
                         </div>
                       )}
