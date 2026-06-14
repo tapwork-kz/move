@@ -87,7 +87,8 @@ export default function App() {
     try {
       let query = supabase.from('documents').select('status, dept, doc_type, period_end, document_items(is_in_stock)');
       if (user.role !== 'Директор' && user.role !== 'Супервайзер') {
-        query = query.or(`dept.ilike.%${user.dept}%,dept.ilike.%Другое%`);
+        // ИСПРАВЛЕНО: Заменили % на * (это стандарт PostgREST для ilike внутри строк условий)
+        query = query.or(`dept.ilike.*${user.dept}*,dept.ilike.*Другое*`);
       } else if (selectedDept) {
         query = query.eq('dept', selectedDept);
       }
