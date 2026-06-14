@@ -86,8 +86,7 @@ export default function App() {
     if (!user) return;
     try {
       let query = supabase.from('documents').select('status, dept, doc_type, period_end, document_items(is_in_stock)');
-      if (user.role !== 'Директор' && user.role !== 'Супервайзер' && user.role !== 'Инфо-консультант') {
-        // ИСПРАВЛЕНО: Частичное совпадение текста для обычных пользователей (например, "Цифра" совпадет с "#Цифра 🟠")
+      if (user.role !== 'Директор' && user.role !== 'Супервайзер') {
         query = query.or(`dept.ilike.%${user.dept}%,dept.ilike.%Другое%`);
       } else if (selectedDept) {
         query = query.eq('dept', selectedDept);
@@ -106,8 +105,8 @@ export default function App() {
           }
 
           if (doc.doc_type === 'gift' || doc.doc_type === 'media') {
-            // ИСПРАВЛЕНО: Для Подарков исключаем из бейджа те, у которых нет наличия на складе
-            if (doc.status === 'processed' || doc.doc_type === 'media' || (doc.status === 'new' && hasStock(doc))) {
+            // ИСПРАВЛЕНО: Бейдж Подарков теперь считает ТОЛЬКО то, что поступает в "Новые" и у чего ЕСТЬ наличие (кроме медиа-картинок)
+            if (doc.status === 'new' && (doc.doc_type === 'media' || hasStock(doc))) {
               counts.gifts++; 
             } else if (computedStatus === 'completed') {
               counts.completed++;
@@ -115,8 +114,8 @@ export default function App() {
               counts.archive++;
             }
           } else {
-            // ИСПРАВЛЕНО: Для Акций считаем в бейдж новые только если они реально есть в наличии на складе
-            if (computedStatus === 'processed' || (computedStatus === 'new' && hasStock(doc))) {
+            // ИСПРАВЛЕНО: Бейдж Акций теперь считает ТОЛЬКО новые документы, которые реально есть на складе в наличии
+            if (computedStatus === 'new' && hasStock(doc)) {
               counts.new++; 
             } else if (computedStatus === 'completed') {
               counts.completed++; 
