@@ -52,7 +52,8 @@ export default function App() {
         const parsed = JSON.parse(savedUser);
         if (parsed && parsed.iin) { 
           setUser(parsed);
-          setSelectedDept(parsed.role === 'Директор' || parsed.role === 'Супервайзер' ? '' : parsed.dept);
+          // ИСПРАВЛЕНО: Добавили сброс выбранного отдела по умолчанию для Инфо-консультанта
+          setSelectedDept(parsed.role === 'Директор' || parsed.role === 'Супервайзер' || parsed.role === 'Инфо-консультант' ? '' : parsed.dept);
           return;
         }
       } catch (e) {
@@ -86,8 +87,8 @@ export default function App() {
     if (!user) return;
     try {
       let query = supabase.from('documents').select('status, dept, doc_type, period_end, document_items(is_in_stock)');
-      if (user.role !== 'Директор' && user.role !== 'Супервайзер') {
-        // ИСПРАВЛЕНО: Заменили % на * (это стандарт PostgREST для ilike внутри строк условий)
+      // ИСПРАВЛЕНО: Инфо-консультант теперь тоже видит глобальные счетчики всех отделов
+      if (user.role !== 'Директор' && user.role !== 'Супервайзер' && user.role !== 'Инфо-консультант') {
         query = query.or(`dept.ilike.*${user.dept}*,dept.ilike.*Другое*`);
       } else if (selectedDept) {
         query = query.eq('dept', selectedDept);
