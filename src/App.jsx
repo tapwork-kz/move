@@ -358,37 +358,17 @@ export default function App() {
     <div 
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
-      className="w-full max-w-full overflow-hidden min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 flex flex-col transition-all duration-300 ease-out select-none"
+      className="w-full max-w-full overflow-hidden min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 flex flex-col transition-colors duration-300 ease-out select-none"
     >
-      {/* ИСПРАВЛЕНО: Закрепляем всю панель управления намертво наверху. z-30 держит её поверх карточек */}
-      <div className="sticky top-0 z-30 bg-slate-50 dark:bg-slate-950 px-4 pt-4 pb-2 border-b border-slate-200/50 dark:border-slate-800/50 transition-colors duration-300">
+      {/* ================= ЗАКРЕПЛЕННАЯ СВЕРХУ ПАНЕЛЬ УПРАВЛЕНИЯ ================= */}
+      <div className="sticky top-0 z-30 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-xs transition-colors duration-300">
         
-        {/* 1. Название и Админ-панель */}
-        <div className="flex justify-between items-center mb-3">
-          <h1 className="text-sm font-black tracking-tight uppercase bg-linear-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent dark:from-blue-400">Мониторинг Промо</h1>
-          {/* Твой селектор выбора отдела для админов (Директор/Супервайзер/Инфо-консультант) */}
-        </div>
-
-        {/* 2. Блок твоих 4-х главных табов (Акции, Завершенные, Подарки, Архив) */}
-        <div className="grid grid-cols-4 bg-slate-200/70 dark:bg-slate-800/60 p-1 rounded-xl shadow-inner gap-0.5 border border-slate-300/10 mb-3">
-          {/* Твой .map с кнопками табов */}
-        </div>
-
-        {/* 3. Инпут поиска и под-табы (если они есть) */}
-        <div className="relative">
-          {/* Твоя строка поиска <input type="text" placeholder="Поиск..." /> */}
-        </div>
-
-      </div>
-
-      {/* Дальше идет твой <main className="p-4 overflow-y-auto"> со списком карточек */}
-      <main className="p-4 flex-1">
-      <div className="w-full">
-        <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 sticky top-0 z-20 px-4 py-2.5 flex items-center justify-between gap-4 shadow-xs transition-colors duration-500 ease-in-out">
+        {/* 1. Нативная шапка профиля и админ-селектор */}
+        <header className="px-4 py-2.5 flex items-center justify-between gap-4 max-w-3xl mx-auto w-full">
           <div className="flex items-center gap-2">
             <div className="bg-blue-600 text-white w-6 h-6 rounded-md flex items-center justify-center font-bold text-xs">PM</div>
             <div>
-              <h1 className="text-xs font-bold text-slate-900 dark:text-slate-100 leading-none">Мониторинг</h1>
+              <h1 className="text-xs font-bold text-slate-900 dark:text-slate-100 leading-none">Мониторинг Промо</h1>
               <div className="flex items-center gap-1 text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">
                 <span>{user?.full_name}</span>
                 <span>•</span>
@@ -396,10 +376,16 @@ export default function App() {
               </div>
             </div>
           </div>
-          {(user?.role === 'Директор' || user?.role === 'Супервайзер') && (
+          
+          {/* Панель выбора отделов (Доступна Директору, Супервайзеру и Инфо-консультанту) */}
+          {(user?.role === 'Директор' || user?.role === 'Супервайзер' || user?.role === 'Инфо-консультант') && (
             <div className="flex items-center gap-1 bg-amber-50 dark:bg-slate-800 border border-amber-200 dark:border-slate-700 px-1.5 py-0.5 rounded-lg text-[10px] transition-colors duration-500">
               <IconAdmin />
-              <select className="bg-transparent border-none font-bold text-slate-700 dark:text-slate-200 outline-none p-0 text-[10px]" value={selectedDept} onChange={e => setSelectedDept(e.target.value)}>
+              <select 
+                className="bg-transparent border-none font-bold text-slate-700 dark:text-slate-200 outline-none p-0 text-[10px]" 
+                value={selectedDept} 
+                onChange={e => setSelectedDept(e.target.value)}
+              >
                 <option value="">Все</option>
                 {departments.map(d => <option key={d} value={d}>{d}</option>)}
               </select>
@@ -407,7 +393,10 @@ export default function App() {
           )}
         </header>
 
-        <main className="w-full p-2.5 max-w-3xl mx-auto space-y-2.5 transition-all duration-500 ease-in-out">
+        {/* 2. Контейнер фильтров и главных вкладок */}
+        <div className="px-4 pb-3 max-w-3xl mx-auto w-full space-y-2.5">
+          
+          {/* Главные табы */}
           <div className="grid grid-cols-4 bg-slate-200/70 dark:bg-slate-800/60 p-1 rounded-xl shadow-inner gap-0.5 border border-slate-300/10 transition-colors duration-500">
             {[
               { id: 'new', label: 'Акции', icon: <IconNew />, count: tabCounts.new },
@@ -418,7 +407,6 @@ export default function App() {
               <button
                 key={tab.id}
                 onClick={() => { setCurrentTab(tab.id); setDateFilter(''); setPromoSubTab('new'); setGiftsSubTab('new'); }}
-                /* ИСПРАВЛЕНО: Убрали фигурные скобки, теперь компилятор Vite пропустит сборку */
                 className={`relative flex flex-col items-center justify-center pt-2.5 pb-2 rounded-lg transition-[background-color,color] duration-200 ease-out ${currentTab === tab.id ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs' : 'text-slate-500 dark:text-slate-400'}`}
               >
                 {tab.count > 0 && (
@@ -432,20 +420,19 @@ export default function App() {
             ))}
           </div>
 
-          {/* ИСПРАВЛЕНО: Подразделы теперь органично встроены в строку поиска, календаря и фильтрации */}
+          {/* Строка поиска, под-вкладок и календаря */}
           <div className="flex items-center gap-1.5 w-full flex-wrap sm:flex-nowrap">
             <div className="relative flex-1 min-w-[150px]">
               <span className="absolute inset-y-0 left-0 flex items-center pl-2.5 text-slate-400"><IconSearch /></span>
               <input
                 type="text"
                 placeholder="Поиск документа..."
-                className="w-full pl-7 pr-2 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg outline-none text-xs font-medium dark:text-white shadow-2xs transition-colors duration-500"
+                className="w-full pl-7 pr-2 py-1.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg outline-none text-xs font-medium dark:text-white shadow-2xs transition-colors duration-300"
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
               />
             </div>
 
-            {/* Однострочная кнопка циклического переключения для Акций */}
             {currentTab === 'new' && (
               <button 
                 onClick={() => setPromoSubTab(promoSubTab === 'new' ? 'processed' : 'new')} 
@@ -455,7 +442,6 @@ export default function App() {
               </button>
             )}
 
-            {/* Однострочная кнопка циклического переключения для Подарков */}
             {currentTab === 'gifts' && (
               <button 
                 onClick={() => setGiftsSubTab(giftsSubTab === 'new' ? 'processed' : 'new')} 
@@ -465,7 +451,7 @@ export default function App() {
               </button>
             )}
 
-            <div className="flex items-center justify-center bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 w-8 h-8 rounded-lg shrink-0 relative shadow-2xs transition-colors duration-500">
+            <div className="flex items-center justify-center bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 w-8 h-8 rounded-lg shrink-0 relative shadow-2xs transition-colors duration-300">
               <span className={dateFilter ? 'text-blue-500' : 'text-slate-400'}><IconCalendar /></span>
               <input type="date" className="absolute inset-0 opacity-0 cursor-pointer" value={dateFilter} onChange={e => setDateFilter(e.target.value)} />
               {dateFilter && (
@@ -474,62 +460,66 @@ export default function App() {
             </div>
           </div>
 
-          {loading ? (
-            <div className="text-center py-10 text-slate-400 dark:text-slate-600 font-medium text-xs tracking-wider animate-pulse">ОБРАБОТКА ДАННЫХ...</div>
-          ) : documents.length === 0 ? (
-            <div className="text-center py-8 bg-white dark:bg-slate-900 border dark:border-slate-800 rounded-xl text-xs text-slate-400 font-medium transition-colors duration-500">Список пуст</div>
-          ) : (
-            <div className="space-y-1.5 overflow-y-auto overscroll-y-contain style-bounce-scroll pb-4">
-              {documents.map(doc => (
-                <div
-                  key={doc.id}
-                  onClick={() => openDocDetails(doc)}
-                  className="bg-white dark:bg-slate-900 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 active:scale-[0.99] transition-all duration-500 ease-in-out shadow-2xs relative"
-                >
-                  <div className="space-y-0.5 min-w-0 flex-1 pr-16">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[8px] font-bold px-1 rounded border dark:border-slate-700 transition-colors duration-500">
-                        {doc.promo_number || 'АКЦИЯ'}
-                      </span>
-                      {(doc.doc_type === 'gift' || doc.doc_type === 'media') && currentTab !== 'processed' && (
-                        <span className="bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 text-[8px] font-black px-1 rounded border border-purple-200 dark:border-purple-900">
-                          Подарок / Комплект
-                        </span>
-                      )}
-                      <span className="text-[9px] text-slate-400 font-medium">{doc.dept}</span>
-                    </div>
-                    <h3 className="font-normal text-slate-700 dark:text-slate-200 text-xs sm:text-sm truncate transition-colors duration-500">{doc.file_name}</h3>
-                    
-                    <div className="flex flex-wrap gap-x-2 text-[9px] pt-0.5">
-                      {/* ИСПРАВЛЕНО: Желтый маркер нехватки остатков теперь корректно отображается и на подарках */}
-                      {!hasStock(doc) && doc.status === 'new' && doc.doc_type !== 'media' ? (
-                        <span className="text-amber-600 dark:text-amber-400 font-bold bg-amber-50 dark:bg-amber-950/30 px-1 rounded transition-colors duration-500">Нет в наличии</span>
-                      ) : (
-                        <div className="text-slate-400 dark:text-slate-500 flex flex-wrap gap-x-2">
-                          {doc.processed_by?.full_name && (
-                            <span>Оформил: {doc.processed_by.full_name} {doc.processed_at && `— ${formatCardDate(doc.processed_at)}`}</span>
-                          )}
-                          {doc.completed_by?.full_name && (
-                            <span>Закрыл: {doc.completed_by.full_name} {doc.completed_at && `— ${formatCardDate(doc.completed_at)}`}</span>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="absolute top-2.5 right-2.5 text-[9px] text-slate-400 dark:text-slate-500 font-medium bg-transparent px-1 py-0.5">
-                    <span>{formatCardDate(doc.created_at)}</span>
-                  </div>
-                </div>
-              ))}
-              <div className="text-center pt-5 pb-3 text-slate-300 dark:text-slate-800 text-[10px] font-medium tracking-widest select-none">
-                • КОНЕЦ СПИСКА •
-              </div>
-            </div>
-          )}
-        </main>
+        </div>
       </div>
 
+      {/* ================= ЛЕНТА КАРТОЧЕК ДОКУМЕНТОВ (СКРОЛЛИТСЯ) ================= */}
+      <main className="p-4 flex-1 overflow-y-auto max-w-3xl mx-auto w-full">
+        {loading ? (
+          <div className="text-center py-10 text-slate-400 dark:text-slate-600 font-medium text-xs tracking-wider animate-pulse">ОБРАБОТКА ДАННЫХ...</div>
+        ) : documents.length === 0 ? (
+          <div className="text-center py-8 bg-white dark:bg-slate-900 border dark:border-slate-800 rounded-xl text-xs text-slate-400 font-medium transition-colors duration-300">Список пуст</div>
+        ) : (
+          <div className="space-y-1.5 pb-4">
+            {documents.map(doc => (
+              <div
+                key={doc.id}
+                onClick={() => openDocDetails(doc)}
+                className="bg-white dark:bg-slate-900 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 active:scale-[0.99] transition-all duration-300 ease-in-out shadow-2xs relative cursor-pointer"
+              >
+                <div className="space-y-0.5 min-w-0 flex-1 pr-16">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[8px] font-bold px-1 rounded border dark:border-slate-700 transition-colors duration-300">
+                      {doc.promo_number || 'АКЦИЯ'}
+                    </span>
+                    {(doc.doc_type === 'gift' || doc.doc_type === 'media') && currentTab !== 'processed' && (
+                      <span className="bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 text-[8px] font-black px-1 rounded border border-purple-200 dark:border-purple-900">
+                        Подарок / Комплект
+                      </span>
+                    )}
+                    <span className="text-[9px] text-slate-400 font-medium">{doc.dept}</span>
+                  </div>
+                  <h3 className="font-normal text-slate-700 dark:text-slate-200 text-xs sm:text-sm truncate transition-colors duration-300">{doc.file_name}</h3>
+                  
+                  <div className="flex flex-wrap gap-x-2 text-[9px] pt-0.5">
+                    {!hasStock(doc) && doc.status === 'new' && doc.doc_type !== 'media' ? (
+                      <span className="text-amber-600 dark:text-amber-400 font-bold bg-amber-50 dark:bg-amber-950/30 px-1 rounded transition-colors duration-300">Нет в наличии</span>
+                    ) : (
+                      <div className="text-slate-400 dark:text-slate-500 flex flex-wrap gap-x-2">
+                        {doc.processed_by?.full_name && (
+                          <span>Оформил: {doc.processed_by.full_name} {doc.processed_at && `— ${formatCardDate(doc.processed_at)}`}</span>
+                        )}
+                        {doc.completed_by?.full_name && (
+                          <span>Закрыл: {doc.completed_by.full_name} {doc.completed_at && `— ${formatCardDate(doc.completed_at)}`}</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="absolute top-2.5 right-2.5 text-[9px] text-slate-400 dark:text-slate-500 font-medium bg-transparent px-1 py-0.5">
+                  <span>{formatCardDate(doc.created_at)}</span>
+                </div>
+              </div>
+            ))}
+            <div className="text-center pt-5 pb-3 text-slate-300 dark:text-slate-800 text-[10px] font-medium tracking-widest select-none">
+              • КОНЕЦ СПИСКА •
+            </div>
+          </div>
+        )}
+      </main>
+
+      {/* ================= МОДАЛЬНОЕ ОКНО СПЕЦИФИКАЦИИ ДОКУМЕНТА ================= */}
       {selectedDoc && (() => {
         const isMediaContent = selectedDoc.doc_type === 'media' || selectedDoc.file_name?.match(/\.(jpeg|jpg|gif|png|webp|pdf)$/i);
         
@@ -543,10 +533,9 @@ export default function App() {
 
         return (
           <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-40 flex items-center justify-center p-3 pb-8 sm:p-4 transition-opacity duration-300 ease-out">
-  {/* Само окно: изолированная плавная анимация масштаба и цвета */}
-  <div className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl max-w-7xl w-full h-[88vh] flex flex-col overflow-hidden border dark:border-slate-800 transition-[transform,opacity] duration-300 cubic-bezier(0.34,1.56,0.64,1) will-change-transform scale-100 animate-in fade-in zoom-in-95">
+            <div className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl max-w-7xl w-full h-[88vh] flex flex-col overflow-hidden border dark:border-slate-800 transition-[transform,opacity] duration-300 cubic-bezier(0.34,1.56,0.64,1) will-change-transform scale-100 animate-in fade-in zoom-in-95">
               
-              <div className="p-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 flex items-center justify-between transition-colors duration-500">
+              <div className="p-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 flex items-center justify-between transition-colors duration-300">
                 <div className="min-w-0 flex-1 pr-3">
                   <span className="text-[9px] font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/50 px-1 py-0.2 rounded border border-blue-200 uppercase tracking-wider">{selectedDoc.promo_number || 'Документ'}</span>
                   <h2 className="text-xs font-bold text-slate-900 dark:text-slate-100 mt-0.5 truncate">{selectedDoc.file_name}</h2>
@@ -590,39 +579,38 @@ export default function App() {
                 ) : filteredItems.length === 0 ? (
                   <div className="text-center py-10 text-slate-400 text-xs font-bold uppercase">Ничего не найдено</div>
                 ) : (
-                <div className="w-full overflow-hidden border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-lg shadow-2xs">
-                  <table className="w-full table-fixed border-collapse text-xs">
-                    <thead>
-                      <tr className="bg-slate-100 dark:bg-slate-800 border-b dark:border-slate-700 text-slate-500 dark:text-slate-400 uppercase text-[9px] font-bold">
-                        <th className="p-2 w-[85px] shrink-0">Статус</th>
-                        <th className="p-2 text-left">{selectedDoc?.header_col1 || 'Наименование'}</th>
-                        {/* ИСПРАВЛЕНО: Игнорируем дефолтный текст из БД и жестко пишем Переоценка, если тип файла revaluation */}
-                        <th className="p-2 text-right w-[85px] shrink-0">
-                          {selectedDoc?.doc_type === 'revaluation' ? 'Переоценка' : (selectedDoc?.header_col2 || 'Промо')}
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                      {filteredItems.map(item => (
-                        <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition">
-                          <td className="p-2 whitespace-nowrap overflow-hidden">
-                            <span className={`px-1 py-0.2 rounded text-[8px] font-bold border ${getRowStyle(item.change_type)}`}>
-                              {item.change_type === 'green' ? 'Добавлен' : item.change_type === 'red' ? 'Удален' : item.change_type === 'yellow' ? 'Цена' : 'База'}
-                            </span>
-                          </td>
-                          <td className="p-2 font-normal text-slate-700 dark:text-slate-300 break-words whitespace-normal align-middle">
-                            {item.raw_name}
-                          </td>
-                          {/* ИСПРАВЛЕНО: Класс font-normal убирает жирность текста у ценников */}
-                          <td className="p-2 text-right font-normal text-slate-900 dark:text-slate-100 break-all align-middle">
-                            {formatDisplayPrice(item.price, selectedDoc?.doc_type)}
-                          </td>
+                  <div className="w-full overflow-hidden border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-lg shadow-2xs">
+                    <table className="w-full table-fixed border-collapse text-xs">
+                      <thead>
+                        <tr className="bg-slate-100 dark:bg-slate-800 border-b dark:border-slate-700 text-slate-500 dark:text-slate-400 uppercase text-[9px] font-bold">
+                          <th className="p-2 w-[85px] shrink-0">Статус</th>
+                          <th className="p-2 text-left">{selectedDoc?.header_col1 || 'Наименование'}</th>
+                          <th className="p-2 text-right w-[85px] shrink-0">
+                            {selectedDoc?.doc_type === 'revaluation' ? 'Переоценка' : (selectedDoc?.header_col2 || 'Промо')}
+                          </th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                        {/* ИСПРАВЛЕНО: Лимит в 80 строк для мгновенного рендеринга на смартфонах */}
+                        {filteredItems.slice(0, 80).map(item => (
+                          <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition">
+                            <td className="p-2 whitespace-nowrap overflow-hidden">
+                              <span className={`px-1 py-0.2 rounded text-[8px] font-bold border ${getRowStyle(item.change_type)}`}>
+                                {item.change_type === 'green' ? 'Добавлен' : item.change_type === 'red' ? 'Удален' : item.change_type === 'yellow' ? 'Цена' : 'База'}
+                              </span>
+                            </td>
+                            <td className="p-2 font-normal text-slate-700 dark:text-slate-300 break-words whitespace-normal align-middle">
+                              {item.raw_name}
+                            </td>
+                            <td className="p-2 text-right font-normal text-slate-900 dark:text-slate-100 break-all align-middle">
+                              {formatDisplayPrice(item.price, selectedDoc?.doc_type)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
 
               <div className="p-2 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 flex items-center justify-end gap-1.5 shrink-0">
@@ -639,6 +627,7 @@ export default function App() {
         );
       })()}
 
+      {/* ================= ДИАЛОГ ПОДТВЕРЖДЕНИЯ ДЕЙСТВИЯ ================= */}
       {confirmModal.show && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
           <div className="bg-white dark:bg-slate-900 p-5 rounded-xl max-w-xs w-full shadow-2xl text-center border dark:border-slate-800">
