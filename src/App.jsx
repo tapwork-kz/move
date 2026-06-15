@@ -62,6 +62,64 @@ export default function App() {
     };
   }, [selectedDoc]);
 
+// ВАПИД КЛЮЧ ДЛЯ АВТОРИЗАЦИИ PUSH-СЕРВЕРА
+const VAPID_PUBLIC_KEY = "BJavWxbhl-PK3aCAKnHFLqx6DwHPYAgJ_KGsERfe2_yqwph8_0iTmxreqA-BrzfZtZZYDBvmakXseugFVmlwvoA";
+
+// Помощник для конвертации VAPID ключа в бинарный формат
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/\-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
+
+// Главная функция генерации пуш-токена и синхронизации с Supabase
+const initPushNotifications = async (currentUser) => {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+    console.log('Push-уведомления не поддерживаются данным браузером');
+    return;
+  }
+
+  try {
+    // 1. Запрашиваем у пользователя доступ к уведомлениям
+    const permission = await Notification.requestPermission();
+    if (permission !== 'granted') {
+      console.log('Пользователь отклонил запрос на уведомления');
+      return;
+    }
+
+    // 2. Ждем готовности сервис-воркера
+    const registration = await navigator.serviceWorker.ready;
+    
+    // 3. Проверяем существующую подписку
+    let subscription = await registration.pushManager.getSubscription();
+
+    // 4. Если подписки нет — создаем новую с твоим VAPID ключом
+    if (!subscription) {
+      subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+      });
+    }
+
+    // 5. Отправляем объект подписки в Supabase в карточку текущего авторизованного сотрудника
+    const { error } = await supabase
+      .from('users')
+      .update({ push_sub: subscription }) // Если колонка типа text, используй JSON.stringify(subscription)
+      .eq('iin', currentUser.iin);
+
+    if (error) throw error;
+    console.log('Push-подписка успешно синхронизирована с Supabase');
+
+  } catch (err) {
+    console.error('Ошибка при настройке веб-пушей:', err.message);
+  }
+};
+
   useEffect(() => {
     const savedUser = localStorage.getItem('promo_app_user');
     if (savedUser && savedUser !== 'null' && savedUser !== 'undefined') {
@@ -83,6 +141,10 @@ export default function App() {
 
   useEffect(() => {
     if (!user) return;
+    
+    // ИСПРАВЛЕНО: Как только пользователь успешно определен, автоматически проверяем и обновляем push-подписку
+    initPushNotifications(user);
+
     setDocuments([]); 
     fetchDocuments();
     updateTabCounters();
