@@ -63,7 +63,7 @@ export default function App() {
   }, [selectedDoc]);
 
 // ВАПИД КЛЮЧ ДЛЯ АВТОРИЗАЦИИ PUSH-СЕРВЕРА
-const VAPID_PUBLIC_KEY = "BJavWxbhl-PK3aCAKnHFLqx6DwHPYAgJ_KGsERfe2_yqwph8_0iTmxreqA-BrzfZtZZYDBvmakXseugFVmlwvoA";
+const VAPID_PUBLIC_KEY = "BL2u0Iuaz_Eig1rfzFAhGvMycdoICZcAsM77N-ZZzVrzDl9JJlrQhc0owh6f4GeYhVJWOdg8gjWxt47cRHiYRwM";
 
 // Помощник для конвертации VAPID ключа в бинарный формат
 function urlBase64ToUint8Array(base64String) {
