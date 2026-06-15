@@ -358,11 +358,12 @@ export default function App() {
     <div 
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
-      /* ИСПРАВЛЕНО: Жестко ограничили высоту каркаса экрана. Теперь шапка физически не сможет уйти вверх */
-      className="w-full max-w-full overflow-hidden h-screen max-h-screen bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 flex flex-col transition-colors duration-300 ease-out select-none"
+      /* ИСПРАВЛЕНО: h-[100dvh] и max-h-[100dvh] намертво блокируют прокрутку самого экрана телефона */
+      className="w-full max-w-full overflow-hidden h-[100dvh] max-h-[100dvh] bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 flex flex-col select-none"
     >
       {/* ================= ЗАКРЕПЛЕННАЯ СВЕРХУ ПАНЕЛЬ УПРАВЛЕНИЯ ================= */}
-      <div className="sticky top-0 z-30 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-xs transition-colors duration-300">
+      {/* ИСПРАВЛЕНО: shrink-0 гарантирует, что эта панель никогда не сожмется и не уползет вверх */}
+      <div className="w-full shrink-0 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-xs transition-colors duration-300">
         
         {/* 1. Нативная шапка профиля и админ-селектор */}
         <header className="px-4 py-2.5 flex items-center justify-between gap-4 max-w-3xl mx-auto w-full">
@@ -465,7 +466,7 @@ export default function App() {
       </div>
 
       {/* ================= ЛЕНТА КАРТОЧЕК ДОКУМЕНТОВ (СКРОЛЛИТСЯ) ================= */}
-      <main className="p-4 flex-1 overflow-y-auto max-w-3xl mx-auto w-full">
+      <main className="p-4 flex-1 overflow-y-auto overscroll-y-contain max-w-3xl mx-auto w-full">
         {loading ? (
           <div className="text-center py-10 text-slate-400 dark:text-slate-600 font-medium text-xs tracking-wider animate-pulse">ОБРАБОТКА ДАННЫХ...</div>
         ) : documents.length === 0 ? (
