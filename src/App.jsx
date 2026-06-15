@@ -628,8 +628,15 @@ export default function App() {
 
               <div className="flex-1 overflow-auto p-1.5 bg-slate-50 dark:bg-slate-950/20">
                 {isMediaContent || modalTab === 'source' ? (
+                  /* Контейнер-обертка: overflow-auto обеспечивает плавный горизонтальный скролл широких таблиц */
                   <div className="w-full h-full overflow-auto rounded-lg bg-white border border-slate-200 dark:border-slate-800 p-0 m-0" style={{ WebkitOverflowScrolling: 'touch' }}>
-                    <iframe src={finalUrl} width="100%" height="100%" className="w-full h-full min-h-[500px] border-none p-0 m-0" title="Doc" />
+                    {/* ИСПРАВЛЕНО: min-w-[950px] заставляет Google отрисовать все скрытые колонки. На ПК (sm:) сбрасывается обратно в полноэкранный min-w-full */}
+                    <iframe 
+                      src={finalUrl} 
+                      className="w-full min-w-[950px] sm:min-w-full h-full min-h-[550px] border-none p-0 m-0" 
+                      title="Doc"
+                      scrolling="yes" /* Принудительно разрешаем внутреннюю прокрутку фрейма */
+                    />
                   </div>
                 ) : filteredItems.length === 0 ? (
                   <div className="text-center py-10 text-slate-400 text-xs font-bold uppercase">Ничего не найдено</div>
