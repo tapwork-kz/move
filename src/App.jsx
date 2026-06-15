@@ -340,7 +340,7 @@ export default function App() {
           {authError && <div className="mb-3 p-2.5 bg-red-50 dark:bg-red-950/50 text-red-600 dark:text-red-400 text-xs font-semibold rounded-xl border border-red-200 dark:border-red-900">{authError}</div>}
           <div className="space-y-3 mb-5">
             <div>
-              <label className="block text-[11px] font-bold uppercase text-slate-400 tracking-wider mb-1">ИИН</label>
+              <label className="block text-[11px] font-bold uppercase text-slate-400 tracking-wider mb-1">Логин</label>
               <input type="text" required placeholder="Введите ваш ИИН" className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none text-base dark:text-white" value={authForm.iin} onChange={e => setAuthForm({ ...authForm, iin: e.target.value })} />
             </div>
             <div>
@@ -363,7 +363,7 @@ export default function App() {
     >
       {/* ================= ЗАКРЕПЛЕННАЯ СВЕРХУ ПАНЕЛЬ УПРАВЛЕНИЯ ================= */}
       {/* ИСПРАВЛЕНО: shrink-0 гарантирует, что эта панель никогда не сожмется и не уползет вверх */}
-      <div className="w-full shrink-0 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-xs transition-colors duration-300">
+      <div className="w-full shrink-0 relative z-30 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-xs transition-colors duration-300">
         
         {/* 1. Нативная шапка профиля и админ-селектор */}
         <header className="px-4 py-2.5 flex items-center justify-between gap-4 max-w-3xl mx-auto w-full">
@@ -466,7 +466,10 @@ export default function App() {
       </div>
 
       {/* ================= ЛЕНТА КАРТОЧЕК ДОКУМЕНТОВ (СКРОЛЛИТСЯ) ================= */}
-      <main className="p-4 flex-1 overflow-y-auto overscroll-y-contain max-w-3xl mx-auto w-full">
+      <main 
+        key={currentTab} 
+        className="p-4 flex-1 overflow-y-auto overscroll-y-contain max-w-3xl mx-auto w-full animate-fade-in"
+      >
         {loading ? (
           <div className="text-center py-10 text-slate-400 dark:text-slate-600 font-medium text-xs tracking-wider animate-pulse">ОБРАБОТКА ДАННЫХ...</div>
         ) : documents.length === 0 ? (
@@ -477,7 +480,8 @@ export default function App() {
               <div
                 key={doc.id}
                 onClick={() => openDocDetails(doc)}
-                className="bg-white dark:bg-slate-900 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 active:scale-[0.99] transition-all duration-300 ease-in-out shadow-2xs relative cursor-pointer"
+                /* ИСПРАВЛЕНО: Убрали тяжелый transition-all, оставив только ультра-быстрый отклик на нажатие пальцем */
+                className="bg-white dark:bg-slate-900 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 active:scale-[0.97] transition-transform duration-100 ease-out shadow-2xs relative cursor-pointer"
               >
                 <div className="space-y-0.5 min-w-0 flex-1 pr-16">
                   <div className="flex items-center gap-1.5 flex-wrap">
@@ -646,6 +650,21 @@ export default function App() {
       )}
 
       <style>{`
+        /* ИСПРАВЛЕНО: Нативная физика мягкого выплывания списков (Spring Physics) через видеокарту смартфона */
+        @keyframes PremiumFadeIn {
+          from { 
+            opacity: 0; 
+            transform: translate3d(0, 12px, 0); 
+          }
+          to { 
+            opacity: 1; 
+            transform: translate3d(0, 0, 0); 
+          }
+        }
+        .animate-fade-in {
+          animation: PremiumFadeIn 0.25s cubic-bezier(0.215, 0.610, 0.355, 1) forwards;
+          will-change: transform, opacity; /* Заранее готовит GPU телефона к плавной отрисовке */
+        }
         .style-bounce-scroll {
           scroll-behavior: smooth;
           -webkit-overflow-scrolling: touch;
