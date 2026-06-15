@@ -504,9 +504,7 @@ export default function App() {
           : selectedDoc.file_url;
 
         return (
-          // ИСПРАВЛЕНО: Добавлен нижний паддинг pb-8 и p-3 для безопасного отступа от углов экрана
-          {/* Задний фон: плавное проявление прозрачности */}
-<div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-40 flex items-center justify-center p-3 pb-8 sm:p-4 transition-opacity duration-300 ease-out">
+          <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-40 flex items-center justify-center p-3 pb-8 sm:p-4 transition-opacity duration-300 ease-out">
   {/* Само окно: изолированная плавная анимация масштаба и цвета */}
   <div className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl max-w-7xl w-full h-[88vh] flex flex-col overflow-hidden border dark:border-slate-800 transition-[transform,opacity] duration-300 cubic-bezier(0.34,1.56,0.64,1) will-change-transform scale-100 animate-in fade-in zoom-in-95">
               
