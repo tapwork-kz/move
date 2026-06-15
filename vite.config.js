@@ -4,8 +4,8 @@ import tailwindcss from '@tailwindcss/vite';
 
 export default defineConfig({
   plugins: [
-    react(),
-    tailwindcss()
+    tailwindcss(), // ИСПРАВЛЕНО: Сначала Tailwind сканирует App.jsx на наличие классов, и только потом React собирает код
+    react()
   ],
-  base: '/move/' // Обеспечивает корректные пути для вашего домена GitHub Pages (/move/)
+  base: '/move/' 
 });
