@@ -28,6 +28,8 @@ export default function App() {
   const [selectedDept, setSelectedDept] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [dateFilter, setDateFilter] = useState('');
+  // ИСПРАВЛЕНО: Добавляем независимое состояние для фильтрации по месяцу
+  const [monthFilter, setMonthFilter] = useState('');
 
   const [documents, setDocuments] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -91,7 +93,7 @@ export default function App() {
     };
     window.addEventListener('focus', handleWindowFocus);
     return () => window.removeEventListener('focus', handleWindowFocus);
-  }, [currentTab, selectedDept, searchQuery, dateFilter, promoSubTab, giftsSubTab, user]);
+  }, [currentTab, selectedDept, searchQuery, dateFilter, monthFilter, promoSubTab, giftsSubTab, user]);
 
   const hasStock = (doc) => {
     if (!doc?.document_items || doc.document_items.length === 0) return true;
@@ -217,20 +219,24 @@ export default function App() {
         (currentTab === 'new' && promoSubTab === 'processed') || 
         (currentTab === 'gifts' && giftsSubTab === 'processed');
 
-      let activeDateFilter = dateFilter;
-      // Если фильтр пустой, а вкладке нужен месяц — по умолчанию подставляем текущий месяц (ГГГГ-ММ)
-      if (!activeDateFilter && needsMonthFilter && !searchQuery) {
-        activeDateFilter = new Date().toISOString().slice(0, 7);
-      }
+      // ИСПРАВЛЕНО: Логика раздельной работы кнопок Дня (dateFilter) и Месяца (monthFilter)
+      if (!searchQuery) {
+        if (dateFilter) {
+          // Если выбран конкретный день (Д), у него наивысший приоритет
+          query = query.gte('created_at', `${dateFilter}T00:00:00`).lte('created_at', `${dateFilter}T23:59:59`);
+        } else {
+          // Вычисляем, на каких вкладках по умолчанию должен стоять текущий месяц, если фильтры пусты
+          const needsMonthDefault = currentTab === 'archive' || 
+            (currentTab === 'new' && promoSubTab === 'processed') || 
+            (currentTab === 'gifts' && giftsSubTab === 'processed');
 
-      // ИСПРАВЛЕНО: Если пользователь пишет в поиск — фильтрация по датам/месяцам полностью отключается (Глобальный поиск по всей истории)
-      if (!searchQuery && activeDateFilter) {
-        if (activeDateFilter.length === 7) { // Если длина строки 7 символов (Формат ГГГГ-ММ)
-          const [year, month] = activeDateFilter.split('-').map(Number);
-          const lastDay = new Date(year, month, 0).getDate(); // Находим последний день месяца (28, 30, 31)
-          query = query.gte('created_at', `${activeDateFilter}-01T00:00:00`).lte('created_at', `${activeDateFilter}-${lastDay}T23:59:59`);
-        } else { // Если длина строки 10 символов (Формат ГГГГ-ММ-ДД)
-          query = query.gte('created_at', `${activeDateFilter}T00:00:00`).lte('created_at', `${activeDateFilter}T23:59:59`);
+          const activeMonth = monthFilter || (needsMonthDefault ? new Date().toISOString().slice(0, 7) : '');
+
+          if (activeMonth) {
+            const [year, month] = activeMonth.split('-').map(Number);
+            const lastDay = new Date(year, month, 0).getDate(); // Автоматически находит 28, 30 или 31 число
+            query = query.gte('created_at', `${activeMonth}-01T00:00:00`).lte('created_at', `${activeMonth}-${lastDay}T23:59:59`);
+          }
         }
       }
 
@@ -439,14 +445,14 @@ export default function App() {
             ))}
           </div>
 
-          {/* Строка поиска, под-вкладок и календаря */}
+          {/* ИСПРАВЛЕНО: Подразделы теперь органично встроены в строку поиска, календаря и фильтрации */}
           <div className="flex items-center gap-1.5 w-full flex-wrap sm:flex-nowrap">
             <div className="relative flex-1 min-w-[150px]">
               <span className="absolute inset-y-0 left-0 flex items-center pl-2.5 text-slate-400"><IconSearch /></span>
               <input
                 type="text"
                 placeholder="Поиск документа..."
-                className="w-full pl-7 pr-2 py-1.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg outline-none text-xs font-medium dark:text-white shadow-2xs transition-colors duration-300"
+                className="w-full pl-7 pr-2 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg outline-none text-xs font-medium dark:text-white shadow-2xs transition-colors duration-500"
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
               />
@@ -455,7 +461,7 @@ export default function App() {
             {/* Однострочная кнопка циклического переключения для Акций */}
             {currentTab === 'new' && (
               <button 
-                onClick={() => { setPromoSubTab(promoSubTab === 'new' ? 'processed' : 'new'); setDateFilter(''); }} 
+                onClick={() => { setPromoSubTab(promoSubTab === 'new' ? 'processed' : 'new'); setDateFilter(''); setMonthFilter(''); }} 
                 className={`px-3 py-1.5 text-xs font-bold rounded-lg border transition shadow-2xs whitespace-nowrap ${promoSubTab === 'processed' ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300'}`}
               >
                 {promoSubTab === 'processed' ? 'Оформленные' : 'Новые'}
@@ -465,21 +471,39 @@ export default function App() {
             {/* Однострочная кнопка циклического переключения для Подарков */}
             {currentTab === 'gifts' && (
               <button 
-                onClick={() => { setGiftsSubTab(giftsSubTab === 'new' ? 'processed' : 'new'); setDateFilter(''); }} 
+                onClick={() => { setGiftsSubTab(giftsSubTab === 'new' ? 'processed' : 'new'); setDateFilter(''); setMonthFilter(''); }} 
                 className={`px-3 py-1.5 text-xs font-bold rounded-lg border transition shadow-2xs whitespace-nowrap ${giftsSubTab === 'processed' ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300'}`}
               >
                 {giftsSubTab === 'processed' ? 'Оформленные' : 'Новые'}
               </button>
             )}
 
-            {/* ИСПРАВЛЕНО: Календарь-хамелеон автоматически переключается между ДНЕМ и МЕСЯЦЕМ */}
+            {/* ИСПРАВЛЕНО: Кнопка выбора МЕСЯЦА с меткой "М" (показывается только в Архиве и Оформленных) */}
+            {(currentTab === 'archive' || (currentTab === 'new' && promoSubTab === 'processed') || (currentTab === 'gifts' && giftsSubTab === 'processed')) && (
+              <div className="flex items-center justify-center bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 w-8 h-8 rounded-lg shrink-0 relative shadow-2xs transition-colors duration-500">
+                <span className={(monthFilter || !dateFilter) && !searchQuery ? 'text-blue-500' : 'text-slate-400'}><IconCalendar /></span>
+                <span className="absolute bottom-0.5 right-1 text-[7px] font-black text-slate-400 dark:text-slate-500 pointer-events-none select-none">М</span>
+                <input 
+                  type="month" 
+                  className="absolute inset-0 opacity-0 cursor-pointer" 
+                  value={monthFilter || new Date().toISOString().slice(0, 7)} 
+                  onChange={e => { setMonthFilter(e.target.value); setDateFilter(''); }} 
+                />
+                {monthFilter && (
+                  <button onClick={(e) => { e.stopPropagation(); setMonthFilter(''); }} className="absolute -top-1 -right-1 bg-slate-500 text-white rounded-full w-3.5 h-3.5 text-[8px] font-black flex items-center justify-center border border-white">✕</button>
+                )}
+              </div>
+            )}
+
+            {/* ИСПРАВЛЕНО: Кнопка выбора конкретного ДНЯ с меткой "Д" (показывается всегда) */}
             <div className="flex items-center justify-center bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 w-8 h-8 rounded-lg shrink-0 relative shadow-2xs transition-colors duration-500">
-              <span className={(dateFilter || (currentTab === 'archive' || (currentTab === 'new' && promoSubTab === 'processed') || (currentTab === 'gifts' && giftsSubTab === 'processed')) && !searchQuery) ? 'text-blue-500' : 'text-slate-400'}><IconCalendar /></span>
+              <span className={dateFilter ? 'text-blue-500' : 'text-slate-400'}><IconCalendar /></span>
+              <span className="absolute bottom-0.5 right-1 text-[7px] font-black text-slate-400 dark:text-slate-500 pointer-events-none select-none">Д</span>
               <input 
-                type={(currentTab === 'archive' || (currentTab === 'new' && promoSubTab === 'processed') || (currentTab === 'gifts' && giftsSubTab === 'processed')) ? "month" : "date"} 
+                type="date" 
                 className="absolute inset-0 opacity-0 cursor-pointer" 
-                value={dateFilter || ((currentTab === 'archive' || (currentTab === 'new' && promoSubTab === 'processed') || (currentTab === 'gifts' && giftsSubTab === 'processed')) ? new Date().toISOString().slice(0, 7) : '')} 
-                onChange={e => setDateFilter(e.target.value)} 
+                value={dateFilter} 
+                onChange={e => { setDateFilter(e.target.value); setMonthFilter(''); }} 
               />
               {dateFilter && (
                 <button onClick={(e) => { e.stopPropagation(); setDateFilter(''); }} className="absolute -top-1 -right-1 bg-slate-500 text-white rounded-full w-3.5 h-3.5 text-[8px] font-black flex items-center justify-center border border-white">✕</button>
