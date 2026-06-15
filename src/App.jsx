@@ -632,39 +632,34 @@ export default function App() {
                   const isWordDoc = selectedDoc?.file_name?.match(/\.docx$/i);
                   
                   if (isWordDoc) {
+                    // ИСПРАВЛЕНО: Считаем точный коэффициент масштаба в JS, чтобы избежать пустых экранов
+                    const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 390;
+                    const availableWidth = screenWidth - 36; // Вычитаем боковые отступы модального окна
+                    const targetWidth = 950; // Оптимальная ширина для полной прорисовки таблиц Ворда
+                    const scaleFactor = Math.min(1, availableWidth / targetWidth); // Получаем чистый множитель (например, 0.38)
+                    
                     return (
-                      /* ИСПРАВЛЕНО ДЛЯ ВОРД: Полностью убираем боковой скролл. 
-                         Применяем точное отдаление через style, чтобы избежать багов компилятора Tailwind. */
-                      <div className="w-full h-full overflow-hidden rounded-lg bg-white border border-slate-200 dark:border-slate-800 p-0 m-0 relative">
-                        
-                        {/* Режим для мобильных устройств (смартфонов): идеальное отдаление без прыжков к середине */}
-                        <div className="sm:hidden w-full h-full relative overflow-hidden">
-                          <iframe 
-                            src={finalUrl} 
-                            title="Doc" 
-                            className="border-none p-0 m-0 absolute top-0 left-0"
-                            style={{
-                              width: '950px',
-                              /* Высота компенсирует масштаб отдаления, убирая пустые белые зоны снизу */
-                              height: 'calc(100% * (950 / (100vw - 36px)))',
-                              /* Масштабируем (отдаляем) документ точно под ширину дисплея смартфона */
-                              transform: 'scale(calc((100vw - 36px) / 950))',
-                              transformOrigin: 'top left'
-                            }}
-                          />
-                        </div>
-
-                        {/* Режим для больших экранов (ПК и Планшеты): оставляем стандартный вывод */}
-                        <div className="hidden sm:block w-full h-full">
-                          <iframe src={finalUrl} width="100%" height="100%" className="w-full h-full min-h-[500px] border-none p-0 m-0" title="Doc" />
-                        </div>
-
+                      /* Основной контейнер: жестко блокирует вылеты вбок */
+                      <div className="w-full h-full overflow-hidden rounded-lg bg-white border border-slate-200 dark:border-slate-800 p-0 m-0 relative min-h-[500px]">
+                        <iframe 
+                          src={finalUrl} 
+                          title="Doc" 
+                          className="border-none p-0 m-0 absolute top-0 left-0"
+                          style={{
+                            width: `${targetWidth}px`,
+                            // Высота увеличивается пропорционально сжатию, чтобы документ идеально заполнил 100% высоты окошка
+                            height: `${100 / scaleFactor}%`,
+                            // Применяем чистое аппаратное отдаление без багов верстки
+                            transform: `scale(${scaleFactor})`,
+                            transformOrigin: 'top left'
+                          }}
+                        />
                       </div>
                     );
                   }
                   
                   return (
-                    /* ДЛЯ ПДФ, КАРТИНОК И ДРУГОГО МЕДИА: Оставляем твой исходный код без изменений */
+                    /* ДЛЯ ПДФ, КАРТИНОК И ПРОЧЕГО: Оставляем твой исходный рабочий код без изменений */
                     <div className="w-full h-full overflow-auto rounded-lg bg-white border border-slate-200 dark:border-slate-800 p-0 m-0" style={{ WebkitOverflowScrolling: 'touch' }}>
                       <iframe src={finalUrl} width="100%" height="100%" className="w-full h-full min-h-[500px] border-none p-0 m-0" title="Doc" />
                     </div>
