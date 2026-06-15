@@ -626,12 +626,17 @@ export default function App() {
                 </div>
               )}
 
-              if (isWordDoc) {
-                    // ИСПРАВЛЕНО: Считаем точный коэффициент масштаба в JS, чтобы избежать пустых экранов
+              <div className="flex-1 overflow-auto p-1.5 bg-slate-50 dark:bg-slate-950/20">
+                {isMediaContent || modalTab === 'source' ? (() => {
+                  // Проверяем, является ли открытый документ файлом Ворд (.docx)
+                  const isWordDoc = selectedDoc?.file_name?.match(/\.docx$/i);
+                  
+                  if (isWordDoc) {
+                    // Считаем точный коэффициент масштаба в JS, чтобы избежать пустых экранов
                     const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 390;
                     const availableWidth = screenWidth - 36; // Вычитаем боковые отступы модального окна
                     const targetWidth = 950; // Оптимальная ширина для полной прорисовки таблиц Ворда
-                    const scaleFactor = Math.min(1, availableWidth / targetWidth); // Получаем чистый множитель (например, 0.38)
+                    const scaleFactor = Math.min(1, availableWidth / targetWidth); // Получаем чистый множитель
                     
                     return (
                       /* Основной контейнер: управляет отображением и прокруткой контента */
@@ -685,6 +690,14 @@ export default function App() {
                       </div>
                     );
                   }
+                  
+                  return (
+                    /* ДЛЯ ПДФ, КАРТИНОК И ПРОЧЕГО: Оставляем твой исходный рабочий код без изменений */
+                    <div className="w-full h-full overflow-auto rounded-lg bg-white border border-slate-200 dark:border-slate-800 p-0 m-0" style={{ WebkitOverflowScrolling: 'touch' }}>
+                      <iframe src={finalUrl} width="100%" height="100%" className="w-full h-full min-h-[500px] border-none p-0 m-0" title="Doc" />
+                    </div>
+                  );
+                })() : filteredItems.length === 0 ? (
                   <div className="text-center py-10 text-slate-400 text-xs font-bold uppercase">Ничего не найдено</div>
                 ) : (
                   <div className="w-full overflow-hidden border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-lg shadow-2xs">
