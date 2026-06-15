@@ -628,17 +628,18 @@ export default function App() {
 
               <div className="flex-1 overflow-auto p-1.5 bg-slate-50 dark:bg-slate-950/20">
                 {isMediaContent || modalTab === 'source' ? (() => {
-                  // Проверяем, является ли текущий документ файлом Ворд (.docx)
+                  // Проверяем, является ли документ файлом Ворд (.docx)
                   const isWordDoc = selectedDoc?.file_name?.match(/\.docx$/i);
                   
                   if (isWordDoc) {
                     return (
-                      /* ИСПРАВЛЕНО ДЛЯ ВОРД: убираем скроллбары и сжимаем тело документа под экран смартфона */
-                      <div className="w-full h-full overflow-hidden rounded-lg bg-white border border-slate-200 dark:border-slate-800 p-0 m-0 relative">
+                      /* ИСПРАВЛЕНО ДЛЯ ВОРД: Добавлен отступ содержания (p-3) иoverflow-auto.
+                         iframe получает ширину 850px на смартфонах, благодаря чему таблицы рендерятся полностью,
+                         а сам документ открывается стабильно с самого верха, без багов со смещением в середину. */
+                      <div className="w-full h-full overflow-auto rounded-lg bg-white border border-slate-200 dark:border-slate-800 p-3" style={{ WebkitOverflowScrolling: 'touch' }}>
                         <iframe 
                           src={finalUrl} 
-                          /* max-sm:scale автоматически рассчитывает коэффициент сжатия под любой телефон, учитывая боковые отступы модалки (-36px) */
-                          className="border-none p-0 m-0 w-full h-full min-h-[500px] max-sm:w-[800px] max-sm:h-[200%] max-sm:origin-top-left max-sm:scale-[calc((100vw-36px)/800)]" 
+                          className="h-full min-h-[500px] border-none m-0 p-0 w-full max-sm:w-[850px]" 
                           title="Doc" 
                         />
                       </div>
@@ -646,7 +647,7 @@ export default function App() {
                   }
                   
                   return (
-                    /* ДЛЯ ПДФ, КАРТИНОК И ПРОЧЕГО: оставляем абсолютно всё, как было прежде, без изменений */
+                    /* ДЛЯ ПДФ, КАРТИНОК И ПРОЧЕГО: Оставляем твой первоначальный код без изменений */
                     <div className="w-full h-full overflow-auto rounded-lg bg-white border border-slate-200 dark:border-slate-800 p-0 m-0" style={{ WebkitOverflowScrolling: 'touch' }}>
                       <iframe src={finalUrl} width="100%" height="100%" className="w-full h-full min-h-[500px] border-none p-0 m-0" title="Doc" />
                     </div>
