@@ -639,12 +639,43 @@ export default function App() {
                     const scaleFactor = Math.min(1, availableWidth / targetWidth); // Получаем чистый множитель
                     
                     return (
-                      /* Основной контейнер: управляет отображением и прокруткой контента */
-                      <div className="w-full h-full overflow-x-hidden overflow-y-auto rounded-lg bg-white border border-slate-200 dark:border-slate-800 p-0 m-0 relative min-h-[500px]">
+                      /* ИСПРАВЛЕНО: Клик теперь обрабатывается самим контейнером. 
+                         Это полностью решает баг со сбросом тапа после скроллинга, так как события больше не теряются. */
+                      <div 
+                        className="w-full h-full overflow-x-hidden overflow-y-auto rounded-lg bg-white border border-slate-200 dark:border-slate-800 p-0 m-0 relative min-h-[500px] cursor-pointer"
+                        onClick={(e) => {
+                          const container = e.currentTarget;
+                          const frame = container.querySelector('iframe');
+                          if (!frame) return;
+                          
+                          const isZoomed = frame.getAttribute('data-zoomed') === 'true';
+                          if (!isZoomed) {
+                            // ТАП 1: Включаем приближение (уменьшено в 1.5 раза от максимума -> ставим комфортный масштаб 0.7)
+                            const zoomScale = 0.7;
+                            frame.style.transform = `scale(${zoomScale})`;
+                            frame.style.position = 'static';
+                            frame.style.width = `${targetWidth}px`;
+                            frame.style.height = '1800px'; // Задаем запас высоты для прокрутки страниц
+                            container.style.overflowX = 'auto'; 
+                            frame.setAttribute('data-zoomed', 'true');
+                          } else {
+                            // ТАП 2: Возвращаем в исходный аккуратный режим по ширине экрана смартфона
+                            frame.style.transform = `scale(${scaleFactor})`;
+                            frame.style.position = 'absolute';
+                            frame.style.width = `${targetWidth}px`;
+                            frame.style.height = `${100 / scaleFactor}%`;
+                            container.style.overflowX = 'hidden';
+                            container.scrollLeft = 0; // Возвращаем горизонтальный сдвиг в начало
+                            container.scrollTop = 0;  // Возвращаем вертикальный скролл на самый верх документа
+                            frame.setAttribute('data-zoomed', 'false');
+                          }
+                        }}
+                      >
                         <iframe 
                           src={finalUrl} 
                           title="Doc" 
-                          className="border-none p-0 m-0 absolute top-0 left-0 transition-transform duration-200 ease-out"
+                          /* ИСПРАВЛЕНО: pointer-events-none пропускает клики и свайпы напрямую в контейнер, сохраняя нативный скролл */
+                          className="border-none p-0 m-0 absolute top-0 left-0 transition-transform duration-200 ease-out pointer-events-none"
                           data-zoomed="false"
                           style={{
                             width: `${targetWidth}px`,
@@ -653,38 +684,6 @@ export default function App() {
                             // Применяем чистое аппаратное отдаление без багов верстки
                             transform: `scale(${scaleFactor})`,
                             transformOrigin: 'top left'
-                          }}
-                        />
-                        
-                        {/* ИСПРАВЛЕНО: Полностью невидимый интерактивный слой поверх документа для обработки тапов.
-                            Он не мешает родному вертикальному и горизонтальному скроллу смартфона пальцем. */}
-                        <div 
-                          className="absolute inset-0 z-10 cursor-pointer bg-transparent"
-                          onClick={(e) => {
-                            const container = e.currentTarget.parentElement;
-                            const frame = container?.querySelector('iframe');
-                            if (!frame || !container) return;
-                            
-                            const isZoomed = frame.getAttribute('data-zoomed') === 'true';
-                            if (!isZoomed) {
-                              // ТАП 1: Включаем режим 100% крупного масштаба в упор и открываем боковой скролл
-                              frame.style.transform = 'scale(1)';
-                              frame.style.position = 'static';
-                              frame.style.width = '950px';
-                              frame.style.height = '1600px';
-                              container.style.overflowX = 'auto'; 
-                              frame.setAttribute('data-zoomed', 'true');
-                            } else {
-                              // ТАП 2: Возвращаем в исходный аккуратный режим по ширине экрана смартфона
-                              frame.style.transform = `scale(${scaleFactor})`;
-                              frame.style.position = 'absolute';
-                              frame.style.width = `${targetWidth}px`;
-                              frame.style.height = `${100 / scaleFactor}%`;
-                              container.style.overflowX = 'hidden';
-                              container.scrollLeft = 0; // Возвращаем горизонтальный сдвиг в начало
-                              container.scrollTop = 0;  // Возвращаем вертикальный скролл на самый верх документа
-                              frame.setAttribute('data-zoomed', 'false');
-                            }
                           }}
                         />
                       </div>
