@@ -5,8 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>Мониторинг Промо</title>
     
-    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
-    
     <link rel="icon" type="image/png" href="favicon.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="favicon.png" />
     <link rel="manifest" href="manifest.json" />
@@ -22,12 +20,16 @@
         -webkit-overflow-scrolling: touch;
         touch-action: pan-x pan-y;
         overscroll-behavior: none; /* Блокирует белые пустоты при обновлении страницы потяжкой */
-        transition: background-color 0.5s ease-in-out, color 0.5s ease-in-out; /* ИСПРАВЛЕНО: Верхняя панель теперь меняет цвет мгновенно и плавно */
+        /* Оптимизированный нативный тайминг переключения цвета темы */
+        transition: background-color 0.3s cubic-bezier(0.4, 0, 0.2, 1), color 0.3s cubic-bezier(0.4, 0, 0.2, 1);
       }
       
       #root {
         width: 100%;
         height: 100%;
+        /* Форсируем запуск графического процессора (GPU) для ультра-плавности */
+        backface-visibility: hidden;
+        transform-style: preserve-3d;
         will-change: transform;
       }
 
@@ -49,6 +51,9 @@
 
     <script>
       let startY = 0;
+      let currentY = 0;
+      let ticking = false;
+      const root = document.getElementById('root');
 
       document.addEventListener('touchstart', (e) => {
         startY = e.touches[0].pageY;
@@ -61,34 +66,37 @@
         currentY = e.touches[0].pageY;
 
         // requestAnimationFrame синхронизирует анимацию с частотой обновления экрана смартфона
-        const root = document.getElementById('root');
-        if (!root) return;
+        if (!ticking && root) {
+          window.requestAnimationFrame(() => {
+            const scrollTop = window.scrollY || document.documentElement.scrollTop;
+            const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
+            
+            // ИСПРАВЛЕНО: Координата теперь высчитывается корректно через сохраненный currentY
+            const diff = currentY - startY;
 
-        const scrollTop = window.scrollY || document.documentElement.scrollTop;
-        const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
-        const diff = y - startY;
-
-        // Эластичное натяжение вверх (в начале страницы)
-        if (scrollTop <= 0 && diff > 0) {
-          const damping = Math.pow(diff, 0.65); // Физика сопротивления
-          root.style.transform = `translateY(${damping}px)`;
-          root.style.transition = 'none';
-        } 
-        // Эластичное натяжение вниз (в самом конце страницы)
-        else if (scrollTop >= maxScroll && diff < 0) {
-          const damping = -Math.pow(Math.abs(diff), 0.65); // Физика сопротивления
-          root.style.transform = `translateY(${damping}px)`;
-          root.style.transition = 'none';
+            // Натяжение у верхней границы
+            if (scrollTop <= 0 && diff > 0) {
+              const damping = Math.pow(diff, 0.55) * 1.2; // Идеальный коэффициент сопротивления
+              root.style.transform = `translate3d(0, ${damping}px, 0)`; // translate3d включает 3D-ускорение видеокарты
+              root.style.transition = 'none';
+            } 
+            // Натяжение у нижней границы
+            else if (scrollTop >= maxScroll && diff < 0) {
+              const damping = -Math.pow(Math.abs(diff), 0.55) * 1.2;
+              root.style.transform = `translate3d(0, ${damping}px, 0)`;
+              root.style.transition = 'none';
+            }
+            ticking = false;
+          });
+          ticking = true;
         }
       }, { passive: true });
 
       document.addEventListener('touchend', () => {
-        const root = document.getElementById('root');
         if (!root) return;
-        
-        // Плавный упругий возврат интерфейса в исходную позицию
-        root.style.transition = 'transform 0.45s cubic-bezier(0.25, 1, 0.5, 1)';
-        root.style.transform = 'translateY(0)';
+        // Премиальная физика упругого возврата (Spring Physics Effect)
+        root.style.transition = 'transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.15)';
+        root.style.transform = 'translate3d(0, 0, 0)';
       });
     </script>
   </body>
