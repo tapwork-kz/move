@@ -627,18 +627,31 @@ export default function App() {
               )}
 
               <div className="flex-1 overflow-auto p-1.5 bg-slate-50 dark:bg-slate-950/20">
-                {isMediaContent || modalTab === 'source' ? (
-                  /* Контейнер-обертка: overflow-auto обеспечивает плавный горизонтальный скролл широких таблиц */
-                  <div className="w-full h-full overflow-auto rounded-lg bg-white border border-slate-200 dark:border-slate-800 p-0 m-0" style={{ WebkitOverflowScrolling: 'touch' }}>
-                    {/* ИСПРАВЛЕНО: min-w-[950px] заставляет Google отрисовать все скрытые колонки. На ПК (sm:) сбрасывается обратно в полноэкранный min-w-full */}
-                    <iframe 
-                      src={finalUrl} 
-                      className="w-full min-w-[950px] sm:min-w-full h-full min-h-[550px] border-none p-0 m-0" 
-                      title="Doc"
-                      scrolling="yes" /* Принудительно разрешаем внутреннюю прокрутку фрейма */
-                    />
-                  </div>
-                ) : filteredItems.length === 0 ? (
+                {isMediaContent || modalTab === 'source' ? (() => {
+                  // Проверяем, является ли текущий документ файлом Ворд (.docx)
+                  const isWordDoc = selectedDoc?.file_name?.match(/\.docx$/i);
+                  
+                  if (isWordDoc) {
+                    return (
+                      /* ИСПРАВЛЕНО ДЛЯ ВОРД: убираем скроллбары и сжимаем тело документа под экран смартфона */
+                      <div className="w-full h-full overflow-hidden rounded-lg bg-white border border-slate-200 dark:border-slate-800 p-0 m-0 relative">
+                        <iframe 
+                          src={finalUrl} 
+                          /* max-sm:scale автоматически рассчитывает коэффициент сжатия под любой телефон, учитывая боковые отступы модалки (-36px) */
+                          className="border-none p-0 m-0 w-full h-full min-h-[500px] max-sm:w-[800px] max-sm:h-[200%] max-sm:origin-top-left max-sm:scale-[calc((100vw-36px)/800)]" 
+                          title="Doc" 
+                        />
+                      </div>
+                    );
+                  }
+                  
+                  return (
+                    /* ДЛЯ ПДФ, КАРТИНОК И ПРОЧЕГО: оставляем абсолютно всё, как было прежде, без изменений */
+                    <div className="w-full h-full overflow-auto rounded-lg bg-white border border-slate-200 dark:border-slate-800 p-0 m-0" style={{ WebkitOverflowScrolling: 'touch' }}>
+                      <iframe src={finalUrl} width="100%" height="100%" className="w-full h-full min-h-[500px] border-none p-0 m-0" title="Doc" />
+                    </div>
+                  );
+                })() : filteredItems.length === 0 ? (
                   <div className="text-center py-10 text-slate-400 text-xs font-bold uppercase">Ничего не найдено</div>
                 ) : (
                   <div className="w-full overflow-hidden border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-lg shadow-2xs">
