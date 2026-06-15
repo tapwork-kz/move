@@ -632,25 +632,24 @@ export default function App() {
                   const isWordDoc = selectedDoc?.file_name?.match(/\.docx$/i);
                   
                   if (isWordDoc) {
+                    // ИСПРАВЛЕНО: Считаем точный коэффициент масштаба в JS, чтобы избежать пустых экранов
                     const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 390;
-                    const availableWidth = screenWidth - 32; // Чистая доступная ширина внутри модалки на смартфоне
+                    const availableWidth = screenWidth - 36; // Вычитаем боковые отступы модального окна
+                    const targetWidth = 950; // Оптимальная ширина для полной прорисовки таблиц Ворда
+                    const scaleFactor = Math.min(1, availableWidth / targetWidth); // Получаем чистый множитель (например, 0.38)
                     
-                    // ИСПРАВЛЕНО: Зажали ширину в 800px. Это принудительно заставит Google уничтожить 
-                    // широкие пустые поля десктопной версии, и рамка фрейма встанет впритык к краям таблицы.
-                    const targetWidth = 800;
-                    const scaleFactor = availableWidth / targetWidth; // Автоматически увеличивает масштаб текста
-
                     return (
-                      /* Контейнер-оболочка: намертво блокирует боковые смещения, разрешая листать только вниз */
-                      <div className="w-full h-full overflow-x-hidden overflow-y-auto rounded-lg bg-white border border-slate-200 dark:border-slate-800 p-0 m-0 relative min-h-[500px]">
+                      /* Основной контейнер: жестко блокирует вылеты вбок */
+                      <div className="w-full h-full overflow-hidden rounded-lg bg-white border border-slate-200 dark:border-slate-800 p-0 m-0 relative min-h-[500px]">
                         <iframe 
                           src={finalUrl} 
                           title="Doc" 
                           className="border-none p-0 m-0 absolute top-0 left-0"
                           style={{
                             width: `${targetWidth}px`,
-                            // Идеально растягиваем высоту с учетом нового масштаба, чтобы страницы скроллились до конца
+                            // Высота увеличивается пропорционально сжатию, чтобы документ идеально заполнил 100% высоты окошка
                             height: `${100 / scaleFactor}%`,
+                            // Применяем чистое аппаратное отдаление без багов верстки
                             transform: `scale(${scaleFactor})`,
                             transformOrigin: 'top left'
                           }}
