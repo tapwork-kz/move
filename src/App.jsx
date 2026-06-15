@@ -380,7 +380,7 @@ export default function App() {
               <button
                 key={tab.id}
                 onClick={() => { setCurrentTab(tab.id); setDateFilter(''); setPromoSubTab('new'); setGiftsSubTab('new'); }}
-                {/* ИСПРАВЛЕНО: Анимируем только цвет фона и текста за 200мс, отклик табов станет мгновенным и премиальным */}
+                /* ИСПРАВЛЕНО: Убрали фигурные скобки, теперь компилятор Vite пропустит сборку */
                 className={`relative flex flex-col items-center justify-center pt-2.5 pb-2 rounded-lg transition-[background-color,color] duration-200 ease-out ${currentTab === tab.id ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs' : 'text-slate-500 dark:text-slate-400'}`}
               >
                 {tab.count > 0 && (
