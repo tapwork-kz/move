@@ -639,12 +639,13 @@ export default function App() {
                     const scaleFactor = Math.min(1, availableWidth / targetWidth); // Получаем чистый множитель (например, 0.38)
                     
                     return (
-                      /* Основной контейнер: жестко блокирует вылеты вбок */
-                      <div className="w-full h-full overflow-hidden rounded-lg bg-white border border-slate-200 dark:border-slate-800 p-0 m-0 relative min-h-[500px]">
+                      /* Основной контейнер: изначально скрывает поля, но готов к прокрутке при увеличении */
+                      <div className="w-full h-full overflow-x-hidden overflow-y-auto rounded-lg bg-white border border-slate-200 dark:border-slate-800 p-0 m-0 relative min-h-[500px]">
                         <iframe 
                           src={finalUrl} 
                           title="Doc" 
-                          className="border-none p-0 m-0 absolute top-0 left-0"
+                          className="border-none p-0 m-0 absolute top-0 left-0 transition-transform duration-200 ease-out"
+                          data-zoomed="false"
                           style={{
                             width: `${targetWidth}px`,
                             // Высота увеличивается пропорционально сжатию, чтобы документ идеально заполнил 100% высоты окошка
@@ -654,17 +655,46 @@ export default function App() {
                             transformOrigin: 'top left'
                           }}
                         />
+                        
+                        {/* ИСПРАВЛЕНО: Высокотехнологичная плавающая кнопка ручного зума контента */}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            const container = e.currentTarget.parentElement;
+                            const frame = container?.querySelector('iframe');
+                            if (!frame || !container) return;
+                            
+                            const isZoomed = frame.getAttribute('data-zoomed') === 'true';
+                            if (!isZoomed) {
+                              // Включаем режим 100% крупного масштаба в упор
+                              frame.style.transform = 'scale(1)';
+                              frame.style.position = 'static';
+                              frame.style.width = '950px';
+                              frame.style.height = '1600px';
+                              container.style.overflowX = 'auto'; // Включаем боковой скролл таблицы
+                              frame.setAttribute('data-zoomed', 'true');
+                              e.currentTarget.innerText = '🔍 Отдалить';
+                              e.currentTarget.className = "absolute bottom-4 right-4 z-50 bg-blue-600 text-white text-[10px] font-black px-3 py-2 rounded-xl shadow-lg active:scale-95 transition-all";
+                            } else {
+                              // Возвращаем в исходный аккуратный режим по ширине экрана
+                              frame.style.transform = `scale(${scaleFactor})`;
+                              frame.style.position = 'absolute';
+                              frame.style.width = `${targetWidth}px`;
+                              frame.style.height = `${100 / scaleFactor}%`;
+                              container.style.overflowX = 'hidden';
+                              container.scrollLeft = 0; // Сбрасываем горизонтальный сдвиг в начало
+                              frame.setAttribute('data-zoomed', 'false');
+                              e.currentTarget.innerText = '🔍 Приблизить';
+                              e.currentTarget.className = "absolute bottom-4 right-4 z-50 bg-slate-950/80 backdrop-blur-xs text-white text-[10px] font-black px-3 py-2 rounded-xl shadow-lg active:scale-95 transition-all";
+                            }
+                          }}
+                          className="absolute bottom-4 right-4 z-50 bg-slate-950/80 backdrop-blur-xs text-white text-[10px] font-black px-3 py-2 rounded-xl shadow-lg active:scale-95 transition-all"
+                        >
+                          🔍 Приблизить
+                        </button>
                       </div>
                     );
                   }
-                  
-                  return (
-                    /* ДЛЯ ПДФ, КАРТИНОК И ПРОЧЕГО: Оставляем твой исходный рабочий код без изменений */
-                    <div className="w-full h-full overflow-auto rounded-lg bg-white border border-slate-200 dark:border-slate-800 p-0 m-0" style={{ WebkitOverflowScrolling: 'touch' }}>
-                      <iframe src={finalUrl} width="100%" height="100%" className="w-full h-full min-h-[500px] border-none p-0 m-0" title="Doc" />
-                    </div>
-                  );
-                })() : filteredItems.length === 0 ? (
                   <div className="text-center py-10 text-slate-400 text-xs font-bold uppercase">Ничего не найдено</div>
                 ) : (
                   <div className="w-full overflow-hidden border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-lg shadow-2xs">
