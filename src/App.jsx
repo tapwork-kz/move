@@ -628,30 +628,43 @@ export default function App() {
 
               <div className="flex-1 overflow-auto p-1.5 bg-slate-50 dark:bg-slate-950/20">
                 {isMediaContent || modalTab === 'source' ? (() => {
-                  // Проверяем, является ли документ файлом Ворд (.docx)
+                  // Проверяем, является ли открытый документ файлом Ворд (.docx)
                   const isWordDoc = selectedDoc?.file_name?.match(/\.docx$/i);
                   
                   if (isWordDoc) {
                     return (
-                      /* ИСПРАВЛЕНО ДЛЯ ВОРД: Полностью заблокирован скролл вбок. 
-                         Масштабируется внешний контейнер-оболочка, благодаря чему документ всегда 
-                         стабильно открывается с самого начала (сверху), а таблица плавно отдаляется под ширину экрана. */
+                      /* ИСПРАВЛЕНО ДЛЯ ВОРД: Полностью убираем боковой скролл. 
+                         Применяем точное отдаление через style, чтобы избежать багов компилятора Tailwind. */
                       <div className="w-full h-full overflow-hidden rounded-lg bg-white border border-slate-200 dark:border-slate-800 p-0 m-0 relative">
-                        {/* Виртуальный слой: на мобильных он имеет ширину 950px и сжимается под экран (100vw - 36px отступов модалки) */}
-                        <div className="w-full h-full max-sm:w-[950px] max-sm:h-[280%] max-sm:origin-top-left max-sm:scale-[calc((100vw-36px)/950)]">
+                        
+                        {/* Режим для мобильных устройств (смартфонов): идеальное отдаление без прыжков к середине */}
+                        <div className="sm:hidden w-full h-full relative overflow-hidden">
                           <iframe 
                             src={finalUrl} 
-                            /* min-h-[1500px] при отдалении превратится в комфортные ~530px высоты на экране телефона */
-                            className="w-full h-full border-none m-0 p-0 min-h-[500px] max-sm:min-h-[1500px]" 
                             title="Doc" 
+                            className="border-none p-0 m-0 absolute top-0 left-0"
+                            style={{
+                              width: '950px',
+                              /* Высота компенсирует масштаб отдаления, убирая пустые белые зоны снизу */
+                              height: 'calc(100% * (950 / (100vw - 36px)))',
+                              /* Масштабируем (отдаляем) документ точно под ширину дисплея смартфона */
+                              transform: 'scale(calc((100vw - 36px) / 950))',
+                              transformOrigin: 'top left'
+                            }}
                           />
                         </div>
+
+                        {/* Режим для больших экранов (ПК и Планшеты): оставляем стандартный вывод */}
+                        <div className="hidden sm:block w-full h-full">
+                          <iframe src={finalUrl} width="100%" height="100%" className="w-full h-full min-h-[500px] border-none p-0 m-0" title="Doc" />
+                        </div>
+
                       </div>
                     );
                   }
                   
                   return (
-                    /* ДЛЯ ПДФ, КАРТИНОК И ПРОЧЕГО: Оставляем твой первоначальный код без изменений в одну ширину */
+                    /* ДЛЯ ПДФ, КАРТИНОК И ДРУГОГО МЕДИА: Оставляем твой исходный код без изменений */
                     <div className="w-full h-full overflow-auto rounded-lg bg-white border border-slate-200 dark:border-slate-800 p-0 m-0" style={{ WebkitOverflowScrolling: 'touch' }}>
                       <iframe src={finalUrl} width="100%" height="100%" className="w-full h-full min-h-[500px] border-none p-0 m-0" title="Doc" />
                     </div>
