@@ -212,9 +212,26 @@ export default function App() {
         query = query.or(`promo_number.ilike.%${searchQuery}%,file_name.ilike.%${searchQuery}%`);
       }
 
-      // ИСПРАВЛЕНО: Календарь теперь ищет строго по суткам поступления писем (created_at)
-      if (dateFilter) {
-        query = query.gte('created_at', `${dateFilter}T00:00:00`).lte('created_at', `${dateFilter}T23:59:59`);
+      // ИСПРАВЛЕНО: Вычисляем, когда кнопка календаря должна переходить в режим МЕСЯЦА
+      const needsMonthFilter = currentTab === 'archive' || 
+        (currentTab === 'new' && promoSubTab === 'processed') || 
+        (currentTab === 'gifts' && giftsSubTab === 'processed');
+
+      let activeDateFilter = dateFilter;
+      // Если фильтр пустой, а вкладке нужен месяц — по умолчанию подставляем текущий месяц (ГГГГ-ММ)
+      if (!activeDateFilter && needsMonthFilter && !searchQuery) {
+        activeDateFilter = new Date().toISOString().slice(0, 7);
+      }
+
+      // ИСПРАВЛЕНО: Если пользователь пишет в поиск — фильтрация по датам/месяцам полностью отключается (Глобальный поиск по всей истории)
+      if (!searchQuery && activeDateFilter) {
+        if (activeDateFilter.length === 7) { // Если длина строки 7 символов (Формат ГГГГ-ММ)
+          const [year, month] = activeDateFilter.split('-').map(Number);
+          const lastDay = new Date(year, month, 0).getDate(); // Находим последний день месяца (28, 30, 31)
+          query = query.gte('created_at', `${activeDateFilter}-01T00:00:00`).lte('created_at', `${activeDateFilter}-${lastDay}T23:59:59`);
+        } else { // Если длина строки 10 символов (Формат ГГГГ-ММ-ДД)
+          query = query.gte('created_at', `${activeDateFilter}T00:00:00`).lte('created_at', `${activeDateFilter}T23:59:59`);
+        }
       }
 
       const { data, error } = await query.order('created_at', { ascending: false });
@@ -435,27 +452,35 @@ export default function App() {
               />
             </div>
 
+            {/* Однострочная кнопка циклического переключения для Акций */}
             {currentTab === 'new' && (
               <button 
-                onClick={() => setPromoSubTab(promoSubTab === 'new' ? 'processed' : 'new')} 
+                onClick={() => { setPromoSubTab(promoSubTab === 'new' ? 'processed' : 'new'); setDateFilter(''); }} 
                 className={`px-3 py-1.5 text-xs font-bold rounded-lg border transition shadow-2xs whitespace-nowrap ${promoSubTab === 'processed' ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300'}`}
               >
                 {promoSubTab === 'processed' ? 'Оформленные' : 'Новые'}
               </button>
             )}
 
+            {/* Однострочная кнопка циклического переключения для Подарков */}
             {currentTab === 'gifts' && (
               <button 
-                onClick={() => setGiftsSubTab(giftsSubTab === 'new' ? 'processed' : 'new')} 
+                onClick={() => { setGiftsSubTab(giftsSubTab === 'new' ? 'processed' : 'new'); setDateFilter(''); }} 
                 className={`px-3 py-1.5 text-xs font-bold rounded-lg border transition shadow-2xs whitespace-nowrap ${giftsSubTab === 'processed' ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300'}`}
               >
                 {giftsSubTab === 'processed' ? 'Оформленные' : 'Новые'}
               </button>
             )}
 
-            <div className="flex items-center justify-center bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 w-8 h-8 rounded-lg shrink-0 relative shadow-2xs transition-colors duration-300">
-              <span className={dateFilter ? 'text-blue-500' : 'text-slate-400'}><IconCalendar /></span>
-              <input type="date" className="absolute inset-0 opacity-0 cursor-pointer" value={dateFilter} onChange={e => setDateFilter(e.target.value)} />
+            {/* ИСПРАВЛЕНО: Календарь-хамелеон автоматически переключается между ДНЕМ и МЕСЯЦЕМ */}
+            <div className="flex items-center justify-center bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 w-8 h-8 rounded-lg shrink-0 relative shadow-2xs transition-colors duration-500">
+              <span className={(dateFilter || (currentTab === 'archive' || (currentTab === 'new' && promoSubTab === 'processed') || (currentTab === 'gifts' && giftsSubTab === 'processed')) && !searchQuery) ? 'text-blue-500' : 'text-slate-400'}><IconCalendar /></span>
+              <input 
+                type={(currentTab === 'archive' || (currentTab === 'new' && promoSubTab === 'processed') || (currentTab === 'gifts' && giftsSubTab === 'processed')) ? "month" : "date"} 
+                className="absolute inset-0 opacity-0 cursor-pointer" 
+                value={dateFilter || ((currentTab === 'archive' || (currentTab === 'new' && promoSubTab === 'processed') || (currentTab === 'gifts' && giftsSubTab === 'processed')) ? new Date().toISOString().slice(0, 7) : '')} 
+                onChange={e => setDateFilter(e.target.value)} 
+              />
               {dateFilter && (
                 <button onClick={(e) => { e.stopPropagation(); setDateFilter(''); }} className="absolute -top-1 -right-1 bg-slate-500 text-white rounded-full w-3.5 h-3.5 text-[8px] font-black flex items-center justify-center border border-white">✕</button>
               )}
