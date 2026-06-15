@@ -633,26 +633,24 @@ export default function App() {
                   
                   if (isWordDoc) {
                     const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 390;
-                    const availableWidth = screenWidth - 32; // Чистая доступная ширина экрана телефона внутри модалки
+                    const availableWidth = screenWidth - 32; // Чистая доступная ширина внутри модалки на смартфоне
                     
-                    // ИСПРАВЛЕНО: Базовая ширина 1024px заставляет Google Drive отрисовать широкую таблицу во всю её величину
-                    const targetWidth = 1024;
-                    // Автоматически высчитываем точный коэффициент сжатия индивидуально под твой смартфон
-                    const scaleFactor = availableWidth / targetWidth;
+                    // ИСПРАВЛЕНО: Зажали ширину в 800px. Это принудительно заставит Google уничтожить 
+                    // широкие пустые поля десктопной версии, и рамка фрейма встанет впритык к краям таблицы.
+                    const targetWidth = 800;
+                    const scaleFactor = availableWidth / targetWidth; // Автоматически увеличивает масштаб текста
 
                     return (
-                      /* Основной контейнер: намертво блокирует горизонтальный сдвиг, разрешая только вертикальный скролл страниц */
+                      /* Контейнер-оболочка: намертво блокирует боковые смещения, разрешая листать только вниз */
                       <div className="w-full h-full overflow-x-hidden overflow-y-auto rounded-lg bg-white border border-slate-200 dark:border-slate-800 p-0 m-0 relative min-h-[500px]">
                         <iframe 
                           src={finalUrl} 
                           title="Doc" 
-                          // ИСПРАВЛЕНО: Привязка строго к верхнему левому углу top-0 left-0 убирает любые перекосы и кривизну верстки
                           className="border-none p-0 m-0 absolute top-0 left-0"
                           style={{
                             width: `${targetWidth}px`,
-                            // Компенсируем высоту под масштаб, чтобы длинный документ не обрезался снизу и скроллился до конца
+                            // Идеально растягиваем высоту с учетом нового масштаба, чтобы страницы скроллились до конца
                             height: `${100 / scaleFactor}%`,
-                            // Чистое аппаратное сжатие всей страницы до пиксельных границ экрана телефона
                             transform: `scale(${scaleFactor})`,
                             transformOrigin: 'top left'
                           }}
