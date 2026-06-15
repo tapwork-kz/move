@@ -45,6 +45,21 @@ export default function App() {
   const [touchStart, setTouchStart] = useState(null);
   const departments = ["#Цифра 🟠", "#МБТ 🟡", "#КБТ 🔵", "#Другое"];
 
+// ИСПРАВЛЕНО: Блокировка прокрутки основного экрана при открытом модальном окне
+  useEffect(() => {
+    if (selectedDoc) {
+      document.documentElement.style.overflow = 'hidden';
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.documentElement.style.overflow = '';
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.documentElement.style.overflow = '';
+      document.body.style.overflow = '';
+    };
+  }, [selectedDoc]);
+
   useEffect(() => {
     const savedUser = localStorage.getItem('promo_app_user');
     if (savedUser && savedUser !== 'null' && savedUser !== 'undefined') {
@@ -343,8 +358,31 @@ export default function App() {
     <div 
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
-      className="w-full max-w-full overflow-hidden min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 flex flex-col transition-colors duration-300 ease-out select-none"
+      className="w-full max-w-full overflow-hidden min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 flex flex-col transition-all duration-300 ease-out select-none"
     >
+      {/* ИСПРАВЛЕНО: Закрепляем всю панель управления намертво наверху. z-30 держит её поверх карточек */}
+      <div className="sticky top-0 z-30 bg-slate-50 dark:bg-slate-950 px-4 pt-4 pb-2 border-b border-slate-200/50 dark:border-slate-800/50 transition-colors duration-300">
+        
+        {/* 1. Название и Админ-панель */}
+        <div className="flex justify-between items-center mb-3">
+          <h1 className="text-sm font-black tracking-tight uppercase bg-linear-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent dark:from-blue-400">Мониторинг Промо</h1>
+          {/* Твой селектор выбора отдела для админов (Директор/Супервайзер/Инфо-консультант) */}
+        </div>
+
+        {/* 2. Блок твоих 4-х главных табов (Акции, Завершенные, Подарки, Архив) */}
+        <div className="grid grid-cols-4 bg-slate-200/70 dark:bg-slate-800/60 p-1 rounded-xl shadow-inner gap-0.5 border border-slate-300/10 mb-3">
+          {/* Твой .map с кнопками табов */}
+        </div>
+
+        {/* 3. Инпут поиска и под-табы (если они есть) */}
+        <div className="relative">
+          {/* Твоя строка поиска <input type="text" placeholder="Поиск..." /> */}
+        </div>
+
+      </div>
+
+      {/* Дальше идет твой <main className="p-4 overflow-y-auto"> со списком карточек */}
+      <main className="p-4 flex-1">
       <div className="w-full">
         <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 sticky top-0 z-20 px-4 py-2.5 flex items-center justify-between gap-4 shadow-xs transition-colors duration-500 ease-in-out">
           <div className="flex items-center gap-2">
