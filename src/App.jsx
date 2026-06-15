@@ -632,24 +632,31 @@ export default function App() {
                   const isWordDoc = selectedDoc?.file_name?.match(/\.docx$/i);
                   
                   if (isWordDoc) {
-                    // ИСПРАВЛЕНО: Считаем точный коэффициент масштаба в JS, чтобы избежать пустых экранов
                     const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 390;
-                    const availableWidth = screenWidth - 36; // Вычитаем боковые отступы модального окна
-                    const targetWidth = 950; // Оптимальная ширина для полной прорисовки таблиц Ворда
-                    const scaleFactor = Math.min(1, availableWidth / targetWidth); // Получаем чистый множитель (например, 0.38)
+                    const availableWidth = screenWidth - 36; // Чистая ширина модального окна на экране смартфона
                     
+                    // ИСПРАВЛЕНО: Задаем ширину полезного контента таблицы (740px вместо 950px)
+                    // Это заставит систему полностью отсечь пустые рамки (по ~105px слева и справа)
+                    const targetWidth = 950;
+                    const contentWidth = 740; 
+                    const leftMargin = (targetWidth - contentWidth) / 2; // Вычисляем размер левого пустого поля
+                    
+                    const scaleFactor = Math.min(1.5, availableWidth / contentWidth);
+                    // Магическое выравнивание: сдвигаем iframe влево ровно на размер пустого поля с учетом масштаба
+                    const leftPos = -(leftMargin * scaleFactor);
+
                     return (
-                      /* Основной контейнер: жестко блокирует вылеты вбок */
-                      <div className="w-full h-full overflow-hidden rounded-lg bg-white border border-slate-200 dark:border-slate-800 p-0 m-0 relative min-h-[500px]">
+                      /* Родительский контейнер: намертво блокирует боковой скролл, оставляя только вертикальный */
+                      <div className="w-full h-full overflow-x-hidden overflow-y-auto rounded-lg bg-white border border-slate-200 dark:border-slate-800 p-0 m-0 relative min-h-[500px]">
                         <iframe 
                           src={finalUrl} 
                           title="Doc" 
-                          className="border-none p-0 m-0 absolute top-0 left-0"
+                          className="border-none p-0 m-0 absolute top-0"
                           style={{
                             width: `${targetWidth}px`,
-                            // Высота увеличивается пропорционально сжатию, чтобы документ идеально заполнил 100% высоты окошка
+                            // Высота идеально заполняет экран, сохраняя нативный вертикальный скролл страниц Google Drive
                             height: `${100 / scaleFactor}%`,
-                            // Применяем чистое аппаратное отдаление без багов верстки
+                            left: `${leftPos}px`,
                             transform: `scale(${scaleFactor})`,
                             transformOrigin: 'top left'
                           }}
