@@ -62,7 +62,7 @@ export default function App() {
     };
   }, [selectedDoc]);
 
-// ВАПИД КЛЮЧ ДЛЯ АВТОРИЗАЦИИ PUSH-СЕРВЕРА
+// ВАПИД КЛЮЧ ДЛЯ АВТОРИЗАЦИИ PUSH-СЕРВЕРА (ОБНОВЛЕННЫЙ)
 const VAPID_PUBLIC_KEY = "BL2u0Iuaz_Eig1rfzFAhGvMycdoICZcAsM77N-ZZzVrzDl9JJlrQhc0owh6f4GeYhVJWOdg8gjWxt47cRHiYRwM";
 
 // Помощник для конвертации VAPID ключа в бинарный формат
@@ -95,25 +95,30 @@ const initPushNotifications = async (currentUser) => {
     // 2. Ждем готовности сервис-воркера
     const registration = await navigator.serviceWorker.ready;
     
-    // 3. Проверяем существующую подписку
+    // 3. Проверяем существующую подписку в кэше браузера
     let subscription = await registration.pushManager.getSubscription();
 
-    // 4. Если подписки нет — создаем новую с твоим VAPID ключом
-    if (!subscription) {
-      subscription = await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
-      });
+    // ИСПРАВЛЕНО ДЛЯ УСТРАНЕНИЯ VapidPkHashMismatch:
+    // Если в памяти браузера остался старый токен от прошлого проекта,
+    // мы принудительно отписываем его, чтобы уничтожить неверный хэш.
+    if (subscription) {
+      await subscription.unsubscribe();
     }
 
-    // 5. Отправляем объект подписки в Supabase в карточку текущего авторизованного сотрудника
+    // 4. Генерируем абсолютно чистую подписку под ТВОЙ НОВЫЙ КЛЮЧ
+    subscription = await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+    });
+
+    // 5. Отправляем свежий объект подписки в Supabase в карточку сотрудника
     const { error } = await supabase
       .from('users')
       .update({ push_sub: subscription }) // Если колонка типа text, используй JSON.stringify(subscription)
       .eq('iin', currentUser.iin);
 
     if (error) throw error;
-    console.log('Push-подписка успешно синхронизирована с Supabase');
+    console.log('Новая Push-подписка успешно сгенерирована и синхронизирована с Supabase');
 
   } catch (err) {
     console.error('Ошибка при настройке веб-пушей:', err.message);
