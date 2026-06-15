@@ -626,12 +626,7 @@ export default function App() {
                 </div>
               )}
 
-              <div className="flex-1 overflow-auto p-1.5 bg-slate-50 dark:bg-slate-950/20">
-                {isMediaContent || modalTab === 'source' ? (() => {
-                  // Проверяем, является ли открытый документ файлом Ворд (.docx)
-                  const isWordDoc = selectedDoc?.file_name?.match(/\.docx$/i);
-                  
-                  if (isWordDoc) {
+              if (isWordDoc) {
                     // ИСПРАВЛЕНО: Считаем точный коэффициент масштаба в JS, чтобы избежать пустых экранов
                     const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 390;
                     const availableWidth = screenWidth - 36; // Вычитаем боковые отступы модального окна
@@ -639,7 +634,7 @@ export default function App() {
                     const scaleFactor = Math.min(1, availableWidth / targetWidth); // Получаем чистый множитель (например, 0.38)
                     
                     return (
-                      /* Основной контейнер: изначально скрывает поля, но готов к прокрутке при увеличении */
+                      /* Основной контейнер: управляет отображением и прокруткой контента */
                       <div className="w-full h-full overflow-x-hidden overflow-y-auto rounded-lg bg-white border border-slate-200 dark:border-slate-800 p-0 m-0 relative min-h-[500px]">
                         <iframe 
                           src={finalUrl} 
@@ -656,9 +651,10 @@ export default function App() {
                           }}
                         />
                         
-                        {/* ИСПРАВЛЕНО: Высокотехнологичная плавающая кнопка ручного зума контента */}
-                        <button
-                          type="button"
+                        {/* ИСПРАВЛЕНО: Полностью невидимый интерактивный слой поверх документа для обработки тапов.
+                            Он не мешает родному вертикальному и горизонтальному скроллу смартфона пальцем. */}
+                        <div 
+                          className="absolute inset-0 z-10 cursor-pointer bg-transparent"
                           onClick={(e) => {
                             const container = e.currentTarget.parentElement;
                             const frame = container?.querySelector('iframe');
@@ -666,32 +662,26 @@ export default function App() {
                             
                             const isZoomed = frame.getAttribute('data-zoomed') === 'true';
                             if (!isZoomed) {
-                              // Включаем режим 100% крупного масштаба в упор
+                              // ТАП 1: Включаем режим 100% крупного масштаба в упор и открываем боковой скролл
                               frame.style.transform = 'scale(1)';
                               frame.style.position = 'static';
                               frame.style.width = '950px';
                               frame.style.height = '1600px';
-                              container.style.overflowX = 'auto'; // Включаем боковой скролл таблицы
+                              container.style.overflowX = 'auto'; 
                               frame.setAttribute('data-zoomed', 'true');
-                              e.currentTarget.innerText = '🔍 Отдалить';
-                              e.currentTarget.className = "absolute bottom-4 right-4 z-50 bg-blue-600 text-white text-[10px] font-black px-3 py-2 rounded-xl shadow-lg active:scale-95 transition-all";
                             } else {
-                              // Возвращаем в исходный аккуратный режим по ширине экрана
+                              // ТАП 2: Возвращаем в исходный аккуратный режим по ширине экрана смартфона
                               frame.style.transform = `scale(${scaleFactor})`;
                               frame.style.position = 'absolute';
                               frame.style.width = `${targetWidth}px`;
                               frame.style.height = `${100 / scaleFactor}%`;
                               container.style.overflowX = 'hidden';
-                              container.scrollLeft = 0; // Сбрасываем горизонтальный сдвиг в начало
+                              container.scrollLeft = 0; // Возвращаем горизонтальный сдвиг в начало
+                              container.scrollTop = 0;  // Возвращаем вертикальный скролл на самый верх документа
                               frame.setAttribute('data-zoomed', 'false');
-                              e.currentTarget.innerText = '🔍 Приблизить';
-                              e.currentTarget.className = "absolute bottom-4 right-4 z-50 bg-slate-950/80 backdrop-blur-xs text-white text-[10px] font-black px-3 py-2 rounded-xl shadow-lg active:scale-95 transition-all";
                             }
                           }}
-                          className="absolute bottom-4 right-4 z-50 bg-slate-950/80 backdrop-blur-xs text-white text-[10px] font-black px-3 py-2 rounded-xl shadow-lg active:scale-95 transition-all"
-                        >
-                          🔍 Приблизить
-                        </button>
+                        />
                       </div>
                     );
                   }
