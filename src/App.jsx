@@ -633,21 +633,25 @@ export default function App() {
                   
                   if (isWordDoc) {
                     return (
-                      /* ИСПРАВЛЕНО ДЛЯ ВОРД: Добавлен отступ содержания (p-3) иoverflow-auto.
-                         iframe получает ширину 850px на смартфонах, благодаря чему таблицы рендерятся полностью,
-                         а сам документ открывается стабильно с самого верха, без багов со смещением в середину. */
-                      <div className="w-full h-full overflow-auto rounded-lg bg-white border border-slate-200 dark:border-slate-800 p-3" style={{ WebkitOverflowScrolling: 'touch' }}>
-                        <iframe 
-                          src={finalUrl} 
-                          className="h-full min-h-[500px] border-none m-0 p-0 w-full max-sm:w-[850px]" 
-                          title="Doc" 
-                        />
+                      /* ИСПРАВЛЕНО ДЛЯ ВОРД: Полностью заблокирован скролл вбок. 
+                         Масштабируется внешний контейнер-оболочка, благодаря чему документ всегда 
+                         стабильно открывается с самого начала (сверху), а таблица плавно отдаляется под ширину экрана. */
+                      <div className="w-full h-full overflow-hidden rounded-lg bg-white border border-slate-200 dark:border-slate-800 p-0 m-0 relative">
+                        {/* Виртуальный слой: на мобильных он имеет ширину 950px и сжимается под экран (100vw - 36px отступов модалки) */}
+                        <div className="w-full h-full max-sm:w-[950px] max-sm:h-[280%] max-sm:origin-top-left max-sm:scale-[calc((100vw-36px)/950)]">
+                          <iframe 
+                            src={finalUrl} 
+                            /* min-h-[1500px] при отдалении превратится в комфортные ~530px высоты на экране телефона */
+                            className="w-full h-full border-none m-0 p-0 min-h-[500px] max-sm:min-h-[1500px]" 
+                            title="Doc" 
+                          />
+                        </div>
                       </div>
                     );
                   }
                   
                   return (
-                    /* ДЛЯ ПДФ, КАРТИНОК И ПРОЧЕГО: Оставляем твой первоначальный код без изменений */
+                    /* ДЛЯ ПДФ, КАРТИНОК И ПРОЧЕГО: Оставляем твой первоначальный код без изменений в одну ширину */
                     <div className="w-full h-full overflow-auto rounded-lg bg-white border border-slate-200 dark:border-slate-800 p-0 m-0" style={{ WebkitOverflowScrolling: 'touch' }}>
                       <iframe src={finalUrl} width="100%" height="100%" className="w-full h-full min-h-[500px] border-none p-0 m-0" title="Doc" />
                     </div>
