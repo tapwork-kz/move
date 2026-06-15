@@ -92,8 +92,9 @@ const initPushNotifications = async (currentUser) => {
       return;
     }
 
-    // 2. Ждем готовности сервис-воркера
-    const registration = await navigator.serviceWorker.ready;
+    // 2. ИСПРАВЛЕНО: Регистрируем Service Worker напрямую, чтобы код не зависал на .ready
+    // Относительный путь 'sw.js' без слэша позволит корректно запустить файл и на localhost, и на GitHub Pages.
+    const registration = await navigator.serviceWorker.register('sw.js');
     
     // 3. Проверяем существующую подписку в кэше браузера
     let subscription = await registration.pushManager.getSubscription();
@@ -111,14 +112,15 @@ const initPushNotifications = async (currentUser) => {
       applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
     });
 
-    // 5. Отправляем свежий объект подписки в Supabase в карточку сотрудника
+    // 5. ИСПРАВЛЕНО: Передаем подписку строго через метод .toJSON()
+    // Без этого Supabase запишет пустой объект {}, так как базовые свойства PushSubscription скрыты в прототипе браузера.
     const { error } = await supabase
       .from('users')
-      .update({ push_sub: subscription }) // Если колонка типа text, используй JSON.stringify(subscription)
+      .update({ push_sub: subscription.toJSON() }) 
       .eq('iin', currentUser.iin);
 
     if (error) throw error;
-    console.log('Новая Push-подписка успешно сгенерирована и синхронизирована с Supabase');
+    console.log('✅ Новая Push-подписка успешно сохранена в Supabase в формате JSON!');
 
   } catch (err) {
     console.error('Ошибка при настройке веб-пушей:', err.message);
