@@ -695,6 +695,14 @@ export default function App() {
                       </div>
                     );
                   }
+                  
+                  return (
+                    /* ДЛЯ ПДФ, КАРТИНОК И ПРОЧЕГО: Оставляем твой исходный рабочий код без изменений */
+                    <div className="w-full h-full overflow-auto rounded-lg bg-white border border-slate-200 dark:border-slate-800 p-0 m-0" style={{ WebkitOverflowScrolling: 'touch' }}>
+                      <iframe src={finalUrl} width="100%" height="100%" className="w-full h-full min-h-[500px] border-none p-0 m-0" title="Doc" />
+                    </div>
+                  );
+                })() : filteredItems.length === 0 ? (
                   <div className="text-center py-10 text-slate-400 text-xs font-bold uppercase">Ничего не найдено</div>
                 ) : (
                   <div className="w-full overflow-hidden border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-lg shadow-2xs">
