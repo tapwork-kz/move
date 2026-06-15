@@ -19,15 +19,17 @@
         overflow-x: hidden;
         -webkit-overflow-scrolling: touch;
         touch-action: pan-x pan-y;
-        overscroll-behavior: none; /* Блокирует белые пустоты при обновлении страницы потяжкой */
-        /* Оптимизированный нативный тайминг переключения цвета темы */
+        overscroll-behavior: none; 
         transition: background-color 0.3s cubic-bezier(0.4, 0, 0.2, 1), color 0.3s cubic-bezier(0.4, 0, 0.2, 1);
       }
       
       #root {
         width: 100%;
         height: 100%;
-        /* Форсируем запуск графического процессора (GPU) для ультра-плавности */
+      }
+
+      /* ИСПРАВЛЕНО: Включаем аппаратное GPU-ускорение для ленты карточек, чтобы она пружинила без лагов */
+      main {
         backface-visibility: hidden;
         transform-style: preserve-3d;
         will-change: transform;
@@ -53,38 +55,38 @@
       let startY = 0;
       let currentY = 0;
       let ticking = false;
-      const root = document.getElementById('root');
 
       document.addEventListener('touchstart', (e) => {
         startY = e.touches[0].pageY;
       }, { passive: true });
 
       document.addEventListener('touchmove', (e) => {
-        /* ИСПРАВЛЕНО: Если React заблокировал overflow тела (окно открыто) — полностью игнорируем кастомный скролл. Это уберет тряску модалки. */
+        // Если открыто модальное окно (заблокирован overflow тела) — полностью отключаем анимацию
         if (document.body.style.overflow === 'hidden') return;
 
         currentY = e.touches[0].pageY;
 
-        // requestAnimationFrame синхронизирует анимацию с частотой обновления экрана смартфона
-        if (!ticking && root) {
+        // ИСПРАВЛЕНО: Находим именно ленту документов main, а не весь сайт root
+        const main = document.querySelector('main');
+        if (!main) return;
+
+        if (!ticking) {
           window.requestAnimationFrame(() => {
-            const scrollTop = window.scrollY || document.documentElement.scrollTop;
-            const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
-            
-            // ИСПРАВЛЕНО: Координата теперь высчитывается корректно через сохраненный currentY
+            const scrollTop = main.scrollTop;
+            const maxScroll = main.scrollHeight - main.clientHeight;
             const diff = currentY - startY;
 
-            // Натяжение у верхней границы
+            // Натяжение у верхней границы (Шапка стоит на месте, пружинит только лента)
             if (scrollTop <= 0 && diff > 0) {
-              const damping = Math.pow(diff, 0.55) * 1.2; // Идеальный коэффициент сопротивления
-              root.style.transform = `translate3d(0, ${damping}px, 0)`; // translate3d включает 3D-ускорение видеокарты
-              root.style.transition = 'none';
+              const damping = Math.pow(diff, 0.55) * 1.2;
+              main.style.transform = `translate3d(0, ${damping}px, 0)`;
+              main.style.transition = 'none';
             } 
-            // Натяжение у нижней границы
+            // Натяжение у нижней границы списка
             else if (scrollTop >= maxScroll && diff < 0) {
               const damping = -Math.pow(Math.abs(diff), 0.55) * 1.2;
-              root.style.transform = `translate3d(0, ${damping}px, 0)`;
-              root.style.transition = 'none';
+              main.style.transform = `translate3d(0, ${damping}px, 0)`;
+              main.style.transition = 'none';
             }
             ticking = false;
           });
@@ -93,10 +95,11 @@
       }, { passive: true });
 
       document.addEventListener('touchend', () => {
-        if (!root) return;
-        // Премиальная физика упругого возврата (Spring Physics Effect)
-        root.style.transition = 'transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.15)';
-        root.style.transform = 'translate3d(0, 0, 0)';
+        const main = document.querySelector('main');
+        if (!main) return;
+        // Мягкий нативный отскок ленты обратно под фиксированную шапку
+        main.style.transition = 'transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.15)';
+        main.style.transform = 'translate3d(0, 0, 0)';
       });
     </script>
   </body>
