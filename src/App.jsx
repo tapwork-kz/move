@@ -186,8 +186,11 @@ const initPushNotifications = async (currentUser) => {
         const counts = { new: 0, completed: 0, gifts: 0, archive: 0 };
         
         data.forEach(doc => {
-          let computedStatus = doc.status;
-          if (doc.period_end && doc.period_end < todayStr) {
+  // ИСПРАВЛЕНО: Если это не медиа и товара нет в наличии, документ вообще не участвует в уведомлениях
+  if (doc.doc_type !== 'media' && !hasStock(doc)) return;
+
+  let computedStatus = doc.status;
+  if (doc.period_end && doc.period_end < todayStr) {
             if (doc.status === 'new' && !hasStock(doc)) computedStatus = 'archive';
             else if (doc.status === 'processed') computedStatus = 'completed';
           }
@@ -523,11 +526,12 @@ const initPushNotifications = async (currentUser) => {
                 onClick={() => { setCurrentTab(tab.id); setDateFilter(''); setPromoSubTab('new'); setGiftsSubTab('new'); }}
                 className={`relative flex flex-col items-center justify-center pt-2.5 pb-2 rounded-lg transition-[background-color,color] duration-200 ease-out ${currentTab === tab.id ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs' : 'text-slate-500 dark:text-slate-400'}`}
               >
-                {tab.count > 0 && (
-                  <span className="absolute top-0.5 right-0.5 bg-red-500 text-white text-[8px] font-black h-3.5 min-w-[14px] px-0.5 rounded-full flex items-center justify-center border border-white dark:border-slate-950 scale-90">
-                    {tab.count}
-                  </span>
-                )}
+                {/* ИСПРАВЛЕНО: Бейдж больше никогда не загорится на кнопке Архив */}
+{tab.count > 0 && tab.id !== 'archive' && (
+  <span className="absolute top-0.5 right-0.5 bg-red-500 text-white text-[8px] font-black h-3.5 min-w-[14px] px-0.5 rounded-full flex items-center justify-center border border-white dark:border-slate-950 scale-90">
+    {tab.count}
+  </span>
+)}
                 <div className="mb-0.5 scale-90">{tab.icon}</div>
                 <span className="text-[9px] sm:text-xs font-medium tracking-tight truncate max-w-full px-0.5">{tab.label}</span>
               </button>
