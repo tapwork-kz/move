@@ -16,7 +16,7 @@ const IconAll = () => <svg className="w-4 h-4" fill="none" stroke="currentColor"
 const IconFile = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>;
 const IconGift = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v13m0-13V6a2 2 0 112 2h-2zm0 0V6a2 2 0 10-2 2h2zm0 0H4v13a2 2 0 002 2h14a2 2 0 002-2V8h-8z"/></svg>;
 
-const tabOrder = ['new', 'completed', 'gifts', 'archive'];
+const tabOrder = ['new', 'completed', 'gifts', 'archive', 'statement'];
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -41,6 +41,13 @@ export default function App() {
   const [itemSearch, setItemSearch] = useState('');
   const [confirmModal, setConfirmModal] = useState({ show: false, type: '', docId: null });
 
+  const [statementQuery, setStatementQuery] = useState('');
+  const [statementItems, setStatementItems] = useState([]);
+  const [statementLoading, setStatementLoading] = useState(false);
+  const [selectedHistoryItem, setSelectedHistoryItem] = useState(null);
+  const [priceHistory, setPriceHistory] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
   // Локальные подразделы для вкладок
   const [promoSubTab, setPromoSubTab] = useState('new'); 
   const [giftsSubTab, setGiftsSubTab] = useState('new'); 
@@ -61,6 +68,50 @@ export default function App() {
       document.body.style.overflow = '';
     };
   }, [selectedDoc]);
+
+  useEffect(() => {
+    if (currentTab !== 'statement') return;
+    if (!statementQuery.trim()) {
+      setStatementItems([]);
+      return;
+    }
+    
+    const delayDebounce = setTimeout(async () => {
+      setStatementLoading(true);
+      try {
+        const { data, error } = await supabase.rpc('search_inventory_with_prices', {
+          search_query: statementQuery.trim()
+        });
+        if (error) throw error;
+        setStatementItems(data || []);
+      } catch (err) {
+        console.error("Ошибка поиска по ведомости:", err.message);
+      } finally {
+        setStatementLoading(false);
+      }
+    }, 400);
+
+    return () => clearTimeout(delayDebounce);
+  }, [statementQuery, currentTab]);
+
+  const openPriceHistory = async (item) => {
+    setSelectedHistoryItem(item);
+    setPriceHistory([]);
+    setHistoryLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('document_items')
+        .select('price, created_at, documents:document_id(file_name, promo_number)')
+        .eq('normalized_name', item.normalized_name)
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      setPriceHistory(data || []);
+    } catch (err) {
+      console.error("Ошибка загрузки истории цен:", err.message);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
 
 // ВАПИД КЛЮЧ ДЛЯ АВТОРИЗАЦИИ PUSH-СЕРВЕРА (ОБНОВЛЕННЫЙ)
 const VAPID_PUBLIC_KEY = "BL2u0Iuaz_Eig1rfzFAhGvMycdoICZcAsM77N-ZZzVrzDl9JJlrQhc0owh6f4GeYhVJWOdg8gjWxt47cRHiYRwM";
@@ -514,13 +565,14 @@ const initPushNotifications = async (currentUser) => {
         <div className="px-4 pb-3 max-w-3xl mx-auto w-full space-y-2.5">
           
           {/* Главные табы */}
-          <div className="grid grid-cols-4 bg-slate-200/70 dark:bg-slate-800/60 p-1 rounded-xl shadow-inner gap-0.5 border border-slate-300/10 transition-colors duration-500">
-            {[
-              { id: 'new', label: 'Акции', icon: <IconNew />, count: tabCounts.new },
-              { id: 'completed', label: 'Завершенные', icon: <IconCompleted />, count: tabCounts.completed },
-              { id: 'gifts', label: 'Подарки', icon: <IconGift />, count: tabCounts.gifts },
-              { id: 'archive', label: 'Архив', icon: <IconArchive />, count: tabCounts.archive }
-            ].map(tab => (
+          <div className="grid grid-cols-5 bg-slate-200/70 dark:bg-slate-800/60 p-1 rounded-xl shadow-inner gap-0.5 border border-slate-300/10 transition-colors duration-500">
+  {[
+    { id: 'new', label: 'Акции', icon: <IconNew />, count: tabCounts.new },
+    { id: 'completed', label: 'Завершенные', icon: <IconCompleted />, count: tabCounts.completed },
+    { id: 'gifts', label: 'Подарки', icon: <IconGift />, count: tabCounts.gifts },
+    { id: 'archive', label: 'Архив', icon: <IconArchive />, count: tabCounts.archive },
+    { id: 'statement', label: 'Ведомость', icon: <IconStock />, count: 0 }
+  ].map(tab => (
               <button
                 key={tab.id}
                 onClick={() => { setCurrentTab(tab.id); setDateFilter(''); setPromoSubTab('new'); setGiftsSubTab('new'); }}
@@ -612,7 +664,54 @@ const initPushNotifications = async (currentUser) => {
         key={currentTab} 
         className="p-4 flex-1 overflow-y-auto overscroll-y-contain max-w-3xl mx-auto w-full animate-fade-in"
       >
-        {loading ? (
+        {currentTab === 'statement' ? (
+          <div className="space-y-3 pb-4">
+            <div className="bg-white dark:bg-slate-900 p-3 rounded-xl border dark:border-slate-800 shadow-2xs">
+              <label className="block text-[11px] font-bold uppercase text-slate-400 tracking-wider mb-1.5">Поиск товара по ведомости остатков склада</label>
+              <div className="relative">
+                <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400"><svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg></span>
+                <input
+                  type="text"
+                  placeholder="Введите название товара (например: телефон)..."
+                  className="w-full pl-8 pr-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none text-xs font-medium dark:text-white shadow-2xs"
+                  value={statementQuery}
+                  onChange={e => setStatementQuery(e.target.value)}
+                />
+              </div>
+            </div>
+
+            {statementLoading ? (
+              <div className="text-center py-10 text-slate-400 font-medium text-xs tracking-wider animate-pulse">ПОИСК СОВПАДЕНИЙ...</div>
+            ) : statementItems.length === 0 ? (
+              <div className="text-center py-8 bg-white dark:bg-slate-900 border dark:border-slate-800 rounded-xl text-xs text-slate-400 font-medium">
+                {statementQuery.trim() ? 'Ничего не найдено' : 'Введите наименование товара для отображения остатков'}
+              </div>
+            ) : (
+              <div className="w-full overflow-hidden border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-xl shadow-2xs">
+                <table className="w-full table-fixed border-collapse text-xs">
+                  <thead>
+                    <tr className="bg-slate-100 dark:bg-slate-800 border-b dark:border-slate-700 text-slate-500 dark:text-slate-400 uppercase text-[9px] font-bold">
+                      <th className="p-2.5 text-left">Номенклатура</th>
+                      <th className="p-2.5 text-center w-[55px]">Склад</th>
+                      <th className="p-2.5 text-center w-[55px]">Витр.</th>
+                      <th className="p-2.5 text-right w-[85px]">Цена</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {statementItems.map(item => (
+                      <tr key={item.id} onClick={() => openPriceHistory(item)} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition cursor-pointer active:bg-slate-100">
+                        <td className="p-2.5 text-left font-normal text-slate-700 dark:text-slate-300 break-words whitespace-normal align-middle">{item.raw_name}</td>
+                        <td className="p-2.5 text-center font-bold text-blue-600 dark:text-blue-400 align-middle">{item.stock_warehouse}</td>
+                        <td className="p-2.5 text-center font-bold text-amber-600 dark:text-amber-400 align-middle">{item.stock_showcase}</td>
+                        <td className="p-2.5 text-right font-bold text-slate-900 dark:text-slate-100 align-middle">{item.latest_price || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        ) : loading ? (
           <div className="text-center py-10 text-slate-400 dark:text-slate-600 font-medium text-xs tracking-wider animate-pulse">ОБРАБОТКА ДАННЫХ...</div>
         ) : documents.length === 0 ? (
           <div className="text-center py-8 bg-white dark:bg-slate-900 border dark:border-slate-800 rounded-xl text-xs text-slate-400 font-medium transition-colors duration-300">Список пуст</div>
@@ -851,6 +950,53 @@ const initPushNotifications = async (currentUser) => {
             <div className="flex gap-2">
               <button onClick={() => setConfirmModal({ show: false, type: '', docId: null })} className="px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg font-bold text-xs text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 flex-1">Отмена</button>
               <button onClick={executeStatusChange} className="px-3 py-2 text-white font-bold text-xs bg-blue-600 hover:bg-blue-700 rounded-lg flex-1">ОК</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ================= МОДАЛЬНОЕ ОКНО ИСТОРИИ ЦЕН ТОВАРА ================= */}
+      {selectedHistoryItem && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl max-w-md w-full max-h-[70vh] flex flex-col overflow-hidden border dark:border-slate-800">
+            <div className="p-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 flex items-center justify-between">
+              <div className="min-w-0 flex-1">
+                <span className="text-[9px] font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/50 px-1 py-0.2 rounded border border-amber-200 uppercase tracking-wider">История стоимости товара</span>
+                <h2 className="text-xs font-bold text-slate-900 dark:text-slate-100 mt-0.5 break-words">{selectedHistoryItem.raw_name}</h2>
+              </div>
+              <button onClick={() => setSelectedHistoryItem(null)} className="text-slate-400 hover:text-slate-600 p-1">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-auto p-3 space-y-2 bg-slate-50 dark:bg-slate-950/20">
+              {historyLoading ? (
+                <div className="text-center py-6 text-slate-400 text-xs font-medium animate-pulse">ЗАГРУЗКА ИСТОРИИ...</div>
+              ) : priceHistory.length === 0 ? (
+                <div className="text-center py-6 text-slate-400 text-xs font-medium">Товар не участвовал в прошлых промо-кампаниях</div>
+              ) : (
+                <div className="space-y-1.5">
+                  {priceHistory.map((hist, idx) => (
+                    <div key={idx} className="bg-white dark:bg-slate-900 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 shadow-2xs">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate">
+                          {hist.documents?.promo_number || 'Акция'}: {hist.documents?.file_name || 'Инфо'}
+                        </p>
+                        <p className="text-[10px] text-slate-400 mt-0.5">{formatCardDate(hist.created_at)}</p>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <span className="text-xs font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 px-2 py-0.5 rounded-md border border-blue-100 dark:border-blue-900">
+                          {hist.price || '—'}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="p-2 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 flex justify-end shrink-0">
+              <button onClick={() => setSelectedHistoryItem(null)} className="px-4 py-1.5 bg-slate-800 text-white text-xs font-bold rounded-lg shadow-xs">Закрыть</button>
             </div>
           </div>
         </div>
