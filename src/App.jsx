@@ -867,8 +867,8 @@ export default function App() {
                     <table className="w-full table-fixed border-collapse text-xs">
                       <thead>
                         <tr className="bg-slate-100 dark:bg-slate-800 border-b dark:border-slate-700 text-slate-500 dark:text-slate-400 uppercase text-[9px] font-bold">
-                          {/* ИСПРАВЛЕНО: Расширяем до 95px, чтобы бейджи остатков встали ровно в ряд */}
-                          <th className="p-2 w-[95px] shrink-0">Статус / Ост.</th>
+                          {/* ИСПРАВЛЕНО: Расширяем до 70px, чтобы бейджи остатков встали ровно в ряд */}
+                          <th className="p-2 w-[70px] shrink-0">Статус</th>
                           <th className="p-2 text-left">{selectedDoc?.header_col1 || 'Наименование'}</th>
                           <th className="p-2 text-right w-[85px] shrink-0">
                             {selectedDoc?.doc_type === 'revaluation' ? 'Переоценка' : (selectedDoc?.header_col2 || 'Промо')}
@@ -893,8 +893,8 @@ export default function App() {
                                   {item.change_type === 'green' ? 'Добавлен' : item.change_type === 'red' ? 'Удален' : item.change_type === 'yellow' ? 'Цена' : 'База'}
                                 </span>
                                 <div className="flex items-center gap-1 text-[8px] font-bold tracking-tight">
-                                  <span className="text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 px-0.5 rounded">Ск:{item.stock_wh ?? 0}</span>
-                                  <span className="text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 px-0.5 rounded">Вт:{item.stock_sc ?? 0}</span>
+                                  <span className="text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 px-0.5 rounded">Ск: {item.stock_wh ?? 0}</span>
+                                  <span className="text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 px-0.5 rounded">Вт: {item.stock_sc ?? 0}</span>
                                 </div>
                               </div>
                             </td>
