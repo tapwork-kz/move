@@ -974,8 +974,6 @@ const initPushNotifications = async (currentUser) => {
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
               </button>
             </div>
-
-            {/* Тело модального окна со скроллом */}
             <div className="flex-1 overflow-auto p-3 space-y-2 bg-slate-50 dark:bg-slate-950/20">
               {historyLoading ? (
                 <div className="text-center py-6 text-slate-400 text-xs font-medium animate-pulse">ЗАГРУЗКА ИСТОРИИ...</div>
@@ -1011,11 +1009,9 @@ const initPushNotifications = async (currentUser) => {
                       </div>
                     </div>
                   ))}
-                </div> {/* ИСПРАВЛЕНО: Закрытие тега space-y-1.5 */}
-              )} {/* ИСПРАВЛЕНО: Закрытие логического условия */}
-            </div> {/* ИСПРАВЛЕНО: Закрытие тега flex-1 overflow-auto */}
-
-            {/* Подвал модального окна */}
+                </div> 
+              )} 
+            </div> 
             <div className="p-2 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 flex justify-end shrink-0">
               <button onClick={() => setSelectedHistoryItem(null)} className="px-4 py-1.5 bg-slate-800 text-white text-xs font-bold rounded-lg shadow-xs">Закрыть</button>
             </div>
@@ -1023,9 +1019,7 @@ const initPushNotifications = async (currentUser) => {
         </div>
       )}
 
-      {/* Блок глобальных стилей приложения */}
       <style>{`
-        /* ИСПРАВЛЕНО: Нативная физика мягкого выплывания списков (Spring Physics) через видеокарту смартфона */
         @keyframes PremiumFadeIn {
           from { 
             opacity: 0; 
