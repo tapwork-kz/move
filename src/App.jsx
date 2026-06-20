@@ -530,7 +530,6 @@ const initPushNotifications = async (currentUser) => {
       className="w-full max-w-full overflow-hidden h-[100dvh] max-h-[100dvh] bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 flex flex-col select-none"
     >
       {/* ================= ЗАКРЕПЛЕННАЯ СВЕРХУ ПАНЕЛЬ УПРАВЛЕНИЯ ================= */}
-      {/* ИСПРАВЛЕНО: shrink-0 гарантирует, что эта панель никогда не сожмется и не уползет вверх */}
       <div className="w-full shrink-0 relative z-30 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-xs transition-colors duration-300">
         
         {/* 1. Нативная шапка профиля и админ-селектор */}
@@ -568,44 +567,43 @@ const initPushNotifications = async (currentUser) => {
           
           {/* Главные табы */}
           <div className="grid grid-cols-5 bg-slate-200/70 dark:bg-slate-800/60 p-1 rounded-xl shadow-inner gap-0.5 border border-slate-300/10 transition-colors duration-500">
-  {[
-    { id: 'new', label: 'Акции', icon: <IconNew />, count: tabCounts.new },
-    { id: 'completed', label: 'Завершенные', icon: <IconCompleted />, count: tabCounts.completed },
-    { id: 'gifts', label: 'Подарки', icon: <IconGift />, count: tabCounts.gifts },
-    { id: 'archive', label: 'Архив', icon: <IconArchive />, count: tabCounts.archive },
-    { id: 'statement', label: 'Ведомость', icon: <IconStock />, count: 0 }
-  ].map(tab => (
+            {[
+              { id: 'new', label: 'Акции', icon: <IconNew />, count: tabCounts.new },
+              { id: 'completed', label: 'Завершенные', icon: <IconCompleted />, count: tabCounts.completed },
+              { id: 'gifts', label: 'Подарки', icon: <IconGift />, count: tabCounts.gifts },
+              { id: 'archive', label: 'Архив', icon: <IconArchive />, count: tabCounts.archive },
+              { id: 'statement', label: 'Ведомость', icon: <IconStock />, count: 0 }
+            ].map(tab => (
               <button
                 key={tab.id}
                 onClick={() => { setCurrentTab(tab.id); setDateFilter(''); setPromoSubTab('new'); setGiftsSubTab('new'); }}
                 className={`relative flex flex-col items-center justify-center pt-2.5 pb-2 rounded-lg transition-[background-color,color] duration-200 ease-out ${currentTab === tab.id ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs' : 'text-slate-500 dark:text-slate-400'}`}
               >
-                {/* ИСПРАВЛЕНО: Бейдж больше никогда не загорится на кнопке Архив */}
-{tab.count > 0 && tab.id !== 'archive' && (
-  <span className="absolute top-0.5 right-0.5 bg-red-500 text-white text-[8px] font-black h-3.5 min-w-[14px] px-0.5 rounded-full flex items-center justify-center border border-white dark:border-slate-950 scale-90">
-    {tab.count}
-  </span>
-)}
+                {tab.count > 0 && tab.id !== 'archive' && (
+                  <span className="absolute top-0.5 right-0.5 bg-red-500 text-white text-[8px] font-black h-3.5 min-w-[14px] px-0.5 rounded-full flex items-center justify-center border border-white dark:border-slate-950 scale-90">
+                    {tab.count}
+                  </span>
+                )}
                 <div className="mb-0.5 scale-90">{tab.icon}</div>
                 <span className="text-[9px] sm:text-xs font-medium tracking-tight truncate max-w-full px-0.5">{tab.label}</span>
               </button>
             ))}
           </div>
 
-          {/* ИСПРАВЛЕНО: Подразделы теперь органично встроены в строку поиска, календаря и фильтрации */}
+          {/* Вспомогательная строка поиска и кнопок подсистем */}
           <div className="flex items-center gap-1.5 w-full flex-wrap sm:flex-nowrap">
             <div className="relative flex-1 min-w-[150px]">
               <span className="absolute inset-y-0 left-0 flex items-center pl-2.5 text-slate-400"><IconSearch /></span>
+              {/* ИСПРАВЛЕНО: Универсальный инпут с динамическим плейсхолдером и переключением на стейт Ведомости */}
               <input
                 type="text"
-                placeholder="Поиск документа..."
+                placeholder={currentTab === 'statement' ? "Поиск товара по ведомости..." : "Поиск документа..."}
                 className="w-full pl-7 pr-2 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg outline-none text-xs font-medium dark:text-white shadow-2xs transition-colors duration-500"
-                value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
+                value={currentTab === 'statement' ? statementQuery : searchQuery}
+                onChange={e => currentTab === 'statement' ? setStatementQuery(e.target.value) : setSearchQuery(e.target.value)}
               />
             </div>
 
-            {/* Однострочная кнопка циклического переключения для Акций */}
             {currentTab === 'new' && (
               <button 
                 onClick={() => { setPromoSubTab(promoSubTab === 'new' ? 'processed' : 'new'); setDateFilter(''); setMonthFilter(''); }} 
@@ -615,7 +613,6 @@ const initPushNotifications = async (currentUser) => {
               </button>
             )}
 
-            {/* Однострочная кнопка циклического переключения для Подарков */}
             {currentTab === 'gifts' && (
               <button 
                 onClick={() => { setGiftsSubTab(giftsSubTab === 'new' ? 'processed' : 'new'); setDateFilter(''); setMonthFilter(''); }} 
@@ -625,8 +622,8 @@ const initPushNotifications = async (currentUser) => {
               </button>
             )}
 
-            {/* ИСПРАВЛЕНО: Кнопка выбора МЕСЯЦА с меткой "М" (показывается только в Архиве и Оформленных) */}
-            {(currentTab === 'archive' || (currentTab === 'new' && promoSubTab === 'processed') || (currentTab === 'gifts' && giftsSubTab === 'processed')) && (
+            {/* ИСПРАВЛЕНО: Кнопка выбора МЕСЯЦА (скрывается во вкладке Ведомость) */}
+            {currentTab !== 'statement' && (currentTab === 'archive' || (currentTab === 'new' && promoSubTab === 'processed') || (currentTab === 'gifts' && giftsSubTab === 'processed')) && (
               <div className="flex items-center justify-center bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 w-8 h-8 rounded-lg shrink-0 relative shadow-2xs transition-colors duration-500">
                 <span className={(monthFilter || !dateFilter) && !searchQuery ? 'text-blue-500' : 'text-slate-400'}><IconCalendar /></span>
                 <span className="absolute bottom-0.5 right-1 text-[7px] font-black text-slate-400 dark:text-slate-500 pointer-events-none select-none">М</span>
@@ -642,20 +639,22 @@ const initPushNotifications = async (currentUser) => {
               </div>
             )}
 
-            {/* ИСПРАВЛЕНО: Кнопка выбора конкретного ДНЯ с меткой "Д" (показывается всегда) */}
-            <div className="flex items-center justify-center bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 w-8 h-8 rounded-lg shrink-0 relative shadow-2xs transition-colors duration-500">
-              <span className={dateFilter ? 'text-blue-500' : 'text-slate-400'}><IconCalendar /></span>
-              <span className="absolute bottom-0.5 right-1 text-[7px] font-black text-slate-400 dark:text-slate-500 pointer-events-none select-none">Д</span>
-              <input 
-                type="date" 
-                className="absolute inset-0 opacity-0 cursor-pointer" 
-                value={dateFilter} 
-                onChange={e => { setDateFilter(e.target.value); setMonthFilter(''); }} 
-              />
-              {dateFilter && (
-                <button onClick={(e) => { e.stopPropagation(); setDateFilter(''); }} className="absolute -top-1 -right-1 bg-slate-500 text-white rounded-full w-3.5 h-3.5 text-[8px] font-black flex items-center justify-center border border-white">✕</button>
-              )}
-            </div>
+            {/* ИСПРАВЛЕНО: Кнопка выбора конкретного ДНЯ (скрывается во вкладке Ведомость) */}
+            {currentTab !== 'statement' && (
+              <div className="flex items-center justify-center bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 w-8 h-8 rounded-lg shrink-0 relative shadow-2xs transition-colors duration-500">
+                <span className={dateFilter ? 'text-blue-500' : 'text-slate-400'}><IconCalendar /></span>
+                <span className="absolute bottom-0.5 right-1 text-[7px] font-black text-slate-400 dark:text-slate-500 pointer-events-none select-none">Д</span>
+                <input 
+                  type="date" 
+                  className="absolute inset-0 opacity-0 cursor-pointer" 
+                  value={dateFilter} 
+                  onChange={e => { setDateFilter(e.target.value); setMonthFilter(''); }} 
+                />
+                {dateFilter && (
+                  <button onClick={(e) => { e.stopPropagation(); setDateFilter(''); }} className="absolute -top-1 -right-1 bg-slate-500 text-white rounded-full w-3.5 h-3.5 text-[8px] font-black flex items-center justify-center border border-white">✕</button>
+                )}
+              </div>
+            )}
           </div>
 
         </div>
@@ -667,22 +666,15 @@ const initPushNotifications = async (currentUser) => {
         className="p-4 flex-1 overflow-y-auto overscroll-y-contain max-w-3xl mx-auto w-full animate-fade-in"
       >
         {currentTab === 'statement' ? (
-          <div className="space-y-3 pb-4">
-            <div className="bg-white dark:bg-slate-900 p-3 rounded-xl border dark:border-slate-800 shadow-2xs">
-              <label className="block text-[11px] font-bold uppercase text-slate-400 tracking-wider mb-1.5">Поиск товара по ведомости остатков склада</label>
-              <div className="relative">
-                <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400"><svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg></span>
-                <input
-                  type="text"
-                  placeholder="Введите название товара (например: телефон)..."
-                  className="w-full pl-8 pr-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none text-xs font-medium dark:text-white shadow-2xs"
-                  value={statementQuery}
-                  onChange={e => setStatementQuery(e.target.value)}
-                />
-              </div>
-            </div>
-
+          <div className="space-y-3 pb-4 pt-1.5">
+            {/* ИСПРАВЛЕНО: Дублирующая панель ввода удалена. Результаты выводятся сразу в таблицу */}
             {statementLoading ? (
+              <div className="text-center py-10 text-slate-400 font-medium text-xs tracking-wider animate-pulse">ПОИСК СОВПАДЕНИЙ...</div>
+            ) : statementItems.length === 0 ? (
+              <div className="text-center py-8 bg-white dark:bg-slate-900 border dark:border-slate-800 rounded-xl text-xs text-slate-400 font-medium">
+                {statementQuery.trim() ? 'Ничего не найдено' : 'Введите наименование товара в верхнюю строку поиска для отображения остатков'}
+              </div>
+            ) : (
               <div className="text-center py-10 text-slate-400 font-medium text-xs tracking-wider animate-pulse">ПОИСК СОВПАДЕНИЙ...</div>
             ) : statementItems.length === 0 ? (
               <div className="text-center py-8 bg-white dark:bg-slate-900 border dark:border-slate-800 rounded-xl text-xs text-slate-400 font-medium">
