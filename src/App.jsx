@@ -28,7 +28,6 @@ export default function App() {
   const [selectedDept, setSelectedDept] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [dateFilter, setDateFilter] = useState('');
-  // ИСПРАВЛЕНО: Добавляем независимое состояние для фильтрации по месяцу
   const [monthFilter, setMonthFilter] = useState('');
 
   const [documents, setDocuments] = useState([]);
@@ -48,13 +47,11 @@ export default function App() {
   const [priceHistory, setPriceHistory] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
 
-  // Локальные подразделы для вкладок
   const [promoSubTab, setPromoSubTab] = useState('new'); 
   const [giftsSubTab, setGiftsSubTab] = useState('new'); 
   const [touchStart, setTouchStart] = useState(null);
   const departments = ["#Цифра 🟠", "#МБТ 🟡", "#КБТ 🔵", "#Другое"];
 
-// ИСПРАВЛЕНО: Блокировка прокрутки основного экрана при открытом модальном окне
   useEffect(() => {
     if (selectedDoc) {
       document.documentElement.style.overflow = 'hidden';
@@ -109,75 +106,55 @@ export default function App() {
       setPriceHistory(data || []);
     } catch (err) {
       console.error("Ошибка загрузки истории цен:", err.message);
-    } finally { // ИСПРАВЛЕНО: теперь пишется строго с двумя "ll"
+    } finally {
       setHistoryLoading(false);
     }
   };
 
-// ВАПИД КЛЮЧ ДЛЯ АВТОРИЗАЦИИ PUSH-СЕРВЕРА (ОБНОВЛЕННЫЙ)
-const VAPID_PUBLIC_KEY = "BL2u0Iuaz_Eig1rfzFAhGvMycdoICZcAsM77N-ZZzVrzDl9JJlrQhc0owh6f4GeYhVJWOdg8gjWxt47cRHiYRwM";
+  const VAPID_PUBLIC_KEY = "BL2u0Iuaz_Eig1rfzFAhGvMycdoICZcAsM77N-ZZzVrzDl9JJlrQhc0owh6f4GeYhVJWOdg8gjWxt47cRHiYRwM";
 
-// Помощник для конвертации VAPID ключа в бинарный формат
-function urlBase64ToUint8Array(base64String) {
-  const padding = '='.repeat((4 - base64String.length % 4) % 4);
-  const base64 = (base64String + padding).replace(/\-/g, '+').replace(/_/g, '/');
-  const rawData = window.atob(base64);
-  const outputArray = new Uint8Array(rawData.length);
-  for (let i = 0; i < rawData.length; ++i) {
-    outputArray[i] = rawData.charCodeAt(i);
-  }
-  return outputArray;
-}
-
-// Главная функция генерации пуш-токена и синхронизации с Supabase
-const initPushNotifications = async (currentUser) => {
-  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-    console.log('Push-уведомления не поддерживаются данным браузером');
-    return;
+  function urlBase64ToUint8Array(base64String) {
+    const padding = '='.repeat((4 - base64String.length % 4) % 4);
+    const base64 = (base64String + padding).replace(/\-/g, '+').replace(/_/g, '/');
+    const rawData = window.atob(base64);
+    const outputArray = new Uint8Array(rawData.length);
+    for (let i = 0; i < rawData.length; ++i) {
+      outputArray[i] = rawData.charCodeAt(i);
+    }
+    return outputArray;
   }
 
-  try {
-    // 1. Запрашиваем у пользователя доступ к уведомлениям
-    const permission = await Notification.requestPermission();
-    if (permission !== 'granted') {
-      console.log('Пользователь отклонил запрос на уведомления');
+  const initPushNotifications = async (currentUser) => {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+      console.log('Push-уведомления не поддерживаются данным браузером');
       return;
     }
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') {
+        console.log('Пользователь отклонил запрос на уведомления');
+        return;
+      }
+      const registration = await navigator.serviceWorker.register('sw.js');
+      let subscription = await registration.pushManager.getSubscription();
+      if (subscription) {
+        await subscription.unsubscribe();
+      }
+      subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+      });
+      const { error } = await supabase
+        .from('users')
+        .update({ push_sub: subscription.toJSON() }) 
+        .eq('iin', currentUser.iin);
 
-    // 2. ИСПРАВЛЕНО: Регистрируем Service Worker напрямую, чтобы код не зависал на .ready
-    // Относительный путь 'sw.js' без слэша позволит корректно запустить файл и на localhost, и на GitHub Pages.
-    const registration = await navigator.serviceWorker.register('sw.js');
-    
-    // 3. Проверяем существующую подписку в кэше браузера
-    let subscription = await registration.pushManager.getSubscription();
-
-    // ИСПРАВЛЕНО ДЛЯ УСТРАНЕНИЯ VapidPkHashMismatch:
-    // Если в памяти браузера остался старый токен от прошлого проекта,
-    // мы принудительно отписываем его, чтобы уничтожить неверный хэш.
-    if (subscription) {
-      await subscription.unsubscribe();
+      if (error) throw error;
+      console.log('✅ Новая Push-подписка успешно сохранена в Supabase в формате JSON!');
+    } catch (err) {
+      console.error('Ошибка при настройке веб-пушей:', err.message);
     }
-
-    // 4. Генерируем абсолютно чистую подписку под ТВОЙ НОВЫЙ КЛЮЧ
-    subscription = await registration.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
-    });
-
-    // 5. ИСПРАВЛЕНО: Передаем подписку строго через метод .toJSON()
-    // Без этого Supabase запишет пустой объект {}, так как базовые свойства PushSubscription скрыты в прототипе браузера.
-    const { error } = await supabase
-      .from('users')
-      .update({ push_sub: subscription.toJSON() }) 
-      .eq('iin', currentUser.iin);
-
-    if (error) throw error;
-    console.log('✅ Новая Push-подписка успешно сохранена в Supabase в формате JSON!');
-
-  } catch (err) {
-    console.error('Ошибка при настройке веб-пушей:', err.message);
-  }
-};
+  };
 
   useEffect(() => {
     const savedUser = localStorage.getItem('promo_app_user');
@@ -186,7 +163,6 @@ const initPushNotifications = async (currentUser) => {
         const parsed = JSON.parse(savedUser);
         if (parsed && parsed.iin) { 
           setUser(parsed);
-          // ИСПРАВЛЕНО: Добавили сброс выбранного отдела по умолчанию для Инфо-консультанта
           setSelectedDept(parsed.role === 'Директор' || parsed.role === 'Супервайзер' || parsed.role === 'Инфо-консультант' ? '' : parsed.dept);
           return;
         }
@@ -200,10 +176,7 @@ const initPushNotifications = async (currentUser) => {
 
   useEffect(() => {
     if (!user) return;
-    
-    // ИСПРАВЛЕНО: Как только пользователь успешно определен, автоматически проверяем и обновляем push-подписку
     initPushNotifications(user);
-
     setDocuments([]); 
     fetchDocuments();
     updateTabCounters();
@@ -225,8 +198,7 @@ const initPushNotifications = async (currentUser) => {
     if (!user) return;
     try {
       let query = supabase.from('documents').select('status, dept, doc_type, period_end, document_items(is_in_stock)');
-      // ИСПРАВЛЕНО: Инфо-консультант теперь тоже видит глобальные счетчики всех отделов
-      if (user.role !== 'Директор' && user.role !== 'Супервайзер' && user.role !== 'Инфо-консультант') {
+      if (user.role !== 'Директор' && user.role !== 'Супервайзер' && user.role !== 'Инfo-консультант') {
         query = query.or(`dept.ilike.*${user.dept}*,dept.ilike.*Другое*`);
       } else if (selectedDept) {
         query = query.eq('dept', selectedDept);
@@ -238,17 +210,15 @@ const initPushNotifications = async (currentUser) => {
         const counts = { new: 0, completed: 0, gifts: 0, archive: 0 };
         
         data.forEach(doc => {
-  // ИСПРАВЛЕНО: Если это не медиа и товара нет в наличии, документ вообще не участвует в уведомлениях
-  if (doc.doc_type !== 'media' && !hasStock(doc)) return;
+          if (doc.doc_type !== 'media' && !hasStock(doc)) return;
 
-  let computedStatus = doc.status;
-  if (doc.period_end && doc.period_end < todayStr) {
+          let computedStatus = doc.status;
+          if (doc.period_end && doc.period_end < todayStr) {
             if (doc.status === 'new' && !hasStock(doc)) computedStatus = 'archive';
             else if (doc.status === 'processed') computedStatus = 'completed';
           }
 
           if (doc.doc_type === 'gift' || doc.doc_type === 'media') {
-            // ИСПРАВЛЕНО: Бейдж Подарков теперь считает ТОЛЬКО то, что поступает в "Новые" и у чего ЕСТЬ наличие (кроме медиа-картинок)
             if (doc.status === 'new' && (doc.doc_type === 'media' || hasStock(doc))) {
               counts.gifts++; 
             } else if (computedStatus === 'completed') {
@@ -257,7 +227,6 @@ const initPushNotifications = async (currentUser) => {
               counts.archive++;
             }
           } else {
-            // ИСПРАВЛЕНО: Бейдж Акций теперь считает ТОЛЬКО новые документы, которые реально есть на складе в наличии
             if (computedStatus === 'new' && hasStock(doc)) {
               counts.new++; 
             } else if (computedStatus === 'completed') {
@@ -272,7 +241,6 @@ const initPushNotifications = async (currentUser) => {
     } catch (err) { console.error(err); }
   };
 
-  // ИСПРАВЛЕНО: Свайп принудительно отключается, если открыто окошко документа
   const handleTouchStart = (e) => {
     if (selectedDoc) return;
     setTouchStart(e.targetTouches[0].clientX);
@@ -306,7 +274,7 @@ const initPushNotifications = async (currentUser) => {
       if (!data) { setAuthError('Неверный ИИН или пароль.'); return; }
       if (data.login_status !== true) { setAuthError('Вход запрещен.'); return; }
       setUser(data);
-      setSelectedDept(data.role === 'Директор' || data.role === 'Супервайзер' ? '' : data.dept);
+      setSelectedDept(data.role === 'Директор' || data.role === 'Супервайзер' || data.role === 'Инфо-консультант' ? '' : data.dept);
       localStorage.setItem('promo_app_user', JSON.stringify(data));
     } catch (err) { setAuthError('Ошибка: ' + err.message); } finally { setAuthLoading(false); }
   };
@@ -327,8 +295,7 @@ const initPushNotifications = async (currentUser) => {
         document_items(price, is_in_stock, change_type, raw_name)
       `);
 
-      if (user.role !== 'Директор' && user.role !== 'Супервайзер') {
-        // ИСПРАВЛЕНО: Заменили % на * чтобы шлюз Supabase не выдавал ошибку адресации 404
+      if (user.role !== 'Директор' && user.role !== 'Супервайзер' && user.role !== 'Инфо-консультант') {
         query = query.or(`dept.ilike.*${user.dept}*,dept.ilike.*Другое*`);
       } else if (selectedDept) {
         query = query.eq('dept', selectedDept);
@@ -338,18 +305,10 @@ const initPushNotifications = async (currentUser) => {
         query = query.or(`promo_number.ilike.%${searchQuery}%,file_name.ilike.%${searchQuery}%`);
       }
 
-      // ИСПРАВЛЕНО: Вычисляем, когда кнопка календаря должна переходить в режим МЕСЯЦА
-      const needsMonthFilter = currentTab === 'archive' || 
-        (currentTab === 'new' && promoSubTab === 'processed') || 
-        (currentTab === 'gifts' && giftsSubTab === 'processed');
-
-      // ИСПРАВЛЕНО: Логика раздельной работы кнопок Дня (dateFilter) и Месяца (monthFilter)
       if (!searchQuery) {
         if (dateFilter) {
-          // Если выбран конкретный день (Д), у него наивысший приоритет
           query = query.gte('created_at', `${dateFilter}T00:00:00`).lte('created_at', `${dateFilter}T23:59:59`);
         } else {
-          // Вычисляем, на каких вкладках по умолчанию должен стоять текущий месяц, если фильтры пусты
           const needsMonthDefault = currentTab === 'archive' || 
             (currentTab === 'new' && promoSubTab === 'processed') || 
             (currentTab === 'gifts' && giftsSubTab === 'processed');
@@ -358,7 +317,7 @@ const initPushNotifications = async (currentUser) => {
 
           if (activeMonth) {
             const [year, month] = activeMonth.split('-').map(Number);
-            const lastDay = new Date(year, month, 0).getDate(); // Автоматически находит 28, 30 или 31 число
+            const lastDay = new Date(year, month, 0).getDate();
             query = query.gte('created_at', `${activeMonth}-01T00:00:00`).lte('created_at', `${activeMonth}-${lastDay}T23:59:59`);
           }
         }
@@ -435,7 +394,6 @@ const initPushNotifications = async (currentUser) => {
     } catch (err) { alert(err.message); }
   };
 
-  // ИСПРАВЛЕНО: Вывод даты с полным четырехзначным годом без лишних знаков и скобок
   const formatCardDate = (isoString) => {
     if (!isoString) return '';
     const d = new Date(isoString);
@@ -448,8 +406,6 @@ const initPushNotifications = async (currentUser) => {
     }).replace(',', '');
   };
 
-  // ИСПРАВЛЕНО: Парсинг и разделение слитных цен Excel без валюты (Подарки не затрагивает)
-  // ИСПРАВЛЕНО: Автоматически форматирует и разделяет пробелами цены переоценок по знаку ₸
   const formatDisplayPrice = (price, docType) => {
     if (!price) return '—';
     if (docType === 'revaluation' || price.includes('₸')) {
@@ -482,25 +438,10 @@ const initPushNotifications = async (currentUser) => {
       <div className="min-h-screen bg-slate-900 dark:bg-slate-950 flex items-center justify-center p-4 transition-all duration-500">
         <form onSubmit={handleLogin} className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-xl max-w-sm w-full border dark:border-slate-800 transition-all duration-500">
           <div className="flex flex-col items-center mb-5">
-            {/* ИСПРАВЛЕНО: Премиальная иконка авторизации со стильным iOS-скруглением, градиентом и мягким свечением */}
             <div className="relative flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-b from-blue-500 to-indigo-600 text-white shadow-lg shadow-blue-500/20 dark:shadow-indigo-500/10 mb-3 transition-all duration-300">
-              {/* Декоративный внутренний блик */}
               <div className="absolute inset-0 rounded-2xl bg-white/10 blur-xs opacity-50 pointer-events-none" />
-              
-              {/* Векторный замок высокой четкости */}
-              <svg 
-                xmlns="http://www.w3.org/2000/svg" 
-                fill="none" 
-                viewBox="0 0 24 24" 
-                strokeWidth={2} 
-                stroke="currentColor" 
-                className="w-7 h-7 filter drop-shadow-[0_2px_4px_rgba(0,0,0,0.15)] animate-fade-in"
-              >
-                <path 
-                  strokeLinecap="round" 
-                  strokeLinejoin="round" 
-                  d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" 
-                />
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-7 h-7 filter drop-shadow-[0_2px_4px_rgba(0,0,0,0.15)] animate-fade-in">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" />
               </svg>
             </div>
             <h2 className="text-lg font-bold text-slate-800 dark:text-slate-100">Авторизация в систему мониторинга Промо</h2>
@@ -526,13 +467,11 @@ const initPushNotifications = async (currentUser) => {
     <div 
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
-      /* ИСПРАВЛЕНО: h-[100dvh] и max-h-[100dvh] намертво блокируют прокрутку самого экрана телефона */
       className="w-full max-w-full overflow-hidden h-[100dvh] max-h-[100dvh] bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 flex flex-col select-none"
     >
       {/* ================= ЗАКРЕПЛЕННАЯ СВЕРХУ ПАНЕЛЬ УПРАВЛЕНИЯ ================= */}
       <div className="w-full shrink-0 relative z-30 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-xs transition-colors duration-300">
         
-        {/* 1. Нативная шапка профиля и админ-селектор */}
         <header className="px-4 py-2.5 flex items-center justify-between gap-4 max-w-3xl mx-auto w-full">
           <div className="flex items-center gap-2">
             <div className="bg-blue-600 text-white w-6 h-6 rounded-md flex items-center justify-center font-bold text-xs">PM</div>
@@ -546,7 +485,6 @@ const initPushNotifications = async (currentUser) => {
             </div>
           </div>
           
-          {/* Панель выбора отделов (Доступна Директору, Супервайзеру и Инфо-консультанту) */}
           {(user?.role === 'Директор' || user?.role === 'Супервайзер' || user?.role === 'Инфо-консультант') && (
             <div className="flex items-center gap-1 bg-amber-50 dark:bg-slate-800 border border-amber-200 dark:border-slate-700 px-1.5 py-0.5 rounded-lg text-[10px] transition-colors duration-500">
               <IconAdmin />
@@ -562,10 +500,8 @@ const initPushNotifications = async (currentUser) => {
           )}
         </header>
 
-        {/* 2. Контейнер фильтров и главных вкладок */}
         <div className="px-4 pb-3 max-w-3xl mx-auto w-full space-y-2.5">
           
-          {/* Главные табы */}
           <div className="grid grid-cols-5 bg-slate-200/70 dark:bg-slate-800/60 p-1 rounded-xl shadow-inner gap-0.5 border border-slate-300/10 transition-colors duration-500">
             {[
               { id: 'new', label: 'Акции', icon: <IconNew />, count: tabCounts.new },
@@ -590,11 +526,9 @@ const initPushNotifications = async (currentUser) => {
             ))}
           </div>
 
-          {/* Вспомогательная строка поиска и кнопок подсистем */}
           <div className="flex items-center gap-1.5 w-full flex-wrap sm:flex-nowrap">
             <div className="relative flex-1 min-w-[150px]">
               <span className="absolute inset-y-0 left-0 flex items-center pl-2.5 text-slate-400"><IconSearch /></span>
-              {/* ИСПРАВЛЕНО: Универсальный инпут с динамическим плейсхолдером и переключением на стейт Ведомости */}
               <input
                 type="text"
                 placeholder={currentTab === 'statement' ? "Поиск товара по ведомости..." : "Поиск документа..."}
@@ -622,7 +556,6 @@ const initPushNotifications = async (currentUser) => {
               </button>
             )}
 
-            {/* ИСПРАВЛЕНО: Кнопка выбора МЕСЯЦА (скрывается во вкладке Ведомость) */}
             {currentTab !== 'statement' && (currentTab === 'archive' || (currentTab === 'new' && promoSubTab === 'processed') || (currentTab === 'gifts' && giftsSubTab === 'processed')) && (
               <div className="flex items-center justify-center bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 w-8 h-8 rounded-lg shrink-0 relative shadow-2xs transition-colors duration-500">
                 <span className={(monthFilter || !dateFilter) && !searchQuery ? 'text-blue-500' : 'text-slate-400'}><IconCalendar /></span>
@@ -639,7 +572,6 @@ const initPushNotifications = async (currentUser) => {
               </div>
             )}
 
-            {/* ИСПРАВЛЕНО: Кнопка выбора конкретного ДНЯ (скрывается во вкладке Ведомость) */}
             {currentTab !== 'statement' && (
               <div className="flex items-center justify-center bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 w-8 h-8 rounded-lg shrink-0 relative shadow-2xs transition-colors duration-500">
                 <span className={dateFilter ? 'text-blue-500' : 'text-slate-400'}><IconCalendar /></span>
@@ -667,18 +599,11 @@ const initPushNotifications = async (currentUser) => {
       >
         {currentTab === 'statement' ? (
           <div className="space-y-3 pb-4 pt-1.5">
-            {/* ИСПРАВЛЕНО: Дублирующая панель ввода удалена. Результаты выводятся сразу в таблицу */}
             {statementLoading ? (
               <div className="text-center py-10 text-slate-400 font-medium text-xs tracking-wider animate-pulse">ПОИСК СОВПАДЕНИЙ...</div>
             ) : statementItems.length === 0 ? (
               <div className="text-center py-8 bg-white dark:bg-slate-900 border dark:border-slate-800 rounded-xl text-xs text-slate-400 font-medium">
                 {statementQuery.trim() ? 'Ничего не найдено' : 'Введите наименование товара в верхнюю строку поиска для отображения остатков'}
-              </div>
-            ) : (
-              <div className="text-center py-10 text-slate-400 font-medium text-xs tracking-wider animate-pulse">ПОИСК СОВПАДЕНИЙ...</div>
-            ) : statementItems.length === 0 ? (
-              <div className="text-center py-8 bg-white dark:bg-slate-900 border dark:border-slate-800 rounded-xl text-xs text-slate-400 font-medium">
-                {statementQuery.trim() ? 'Ничего не найдено' : 'Введите наименование товара для отображения остатков'}
               </div>
             ) : (
               <div className="w-full overflow-hidden border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-xl shadow-2xs">
@@ -698,8 +623,8 @@ const initPushNotifications = async (currentUser) => {
                         <td className="p-2.5 text-center font-bold text-blue-600 dark:text-blue-400 align-middle">{item.stock_warehouse}</td>
                         <td className="p-2.5 text-center font-bold text-amber-600 dark:text-amber-400 align-middle">{item.stock_showcase}</td>
                         <td className="p-2.5 text-right font-bold text-slate-900 dark:text-slate-100 align-middle">
-  {formatDisplayPrice(item.latest_price)}
-</td>
+                          {formatDisplayPrice(item.latest_price)}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -717,7 +642,6 @@ const initPushNotifications = async (currentUser) => {
               <div
                 key={doc.id}
                 onClick={() => openDocDetails(doc)}
-                /* ИСПРАВЛЕНО: Убрали тяжелый transition-all, оставив только ультра-быстрый отклик на нажатие пальцем */
                 className="bg-white dark:bg-slate-900 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 active:scale-[0.97] transition-transform duration-100 ease-out shadow-2xs relative cursor-pointer"
               >
                 <div className="space-y-0.5 min-w-0 flex-1 pr-16">
@@ -816,19 +740,15 @@ const initPushNotifications = async (currentUser) => {
 
               <div className="flex-1 overflow-auto p-1.5 bg-slate-50 dark:bg-slate-950/20">
                 {isMediaContent || modalTab === 'source' ? (() => {
-                  // Проверяем, является ли открытый документ файлом Ворд (.docx)
                   const isWordDoc = selectedDoc?.file_name?.match(/\.docx$/i);
                   
                   if (isWordDoc) {
-                    // Считаем точный коэффициент масштаба в JS, чтобы избежать пустых экранов
                     const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 390;
-                    const availableWidth = screenWidth - 36; // Вычитаем боковые отступы модального окна
-                    const targetWidth = 950; // Оптимальная ширина для полной прорисовки таблиц Ворда
-                    const scaleFactor = Math.min(1, availableWidth / targetWidth); // Получаем чистый множитель
+                    const availableWidth = screenWidth - 36; 
+                    const targetWidth = 950; 
+                    const scaleFactor = Math.min(1, availableWidth / targetWidth); 
                     
                     return (
-                      /* ИСПРАВЛЕНО: Клик теперь обрабатывается самим контейнером. 
-                         Это полностью решает баг со сбросом тапа после скроллинга, так как события больше не теряются. */
                       <div 
                         className="w-full h-full overflow-x-hidden overflow-y-auto rounded-lg bg-white border border-slate-200 dark:border-slate-800 p-0 m-0 relative min-h-[500px] cursor-pointer"
                         onClick={(e) => {
@@ -838,23 +758,21 @@ const initPushNotifications = async (currentUser) => {
                           
                           const isZoomed = frame.getAttribute('data-zoomed') === 'true';
                           if (!isZoomed) {
-                            // ТАП 1: Включаем приближение (уменьшено в 1.5 раза от максимума -> ставим комфортный масштаб 0.7)
                             const zoomScale = 0.7;
                             frame.style.transform = `scale(${zoomScale})`;
                             frame.style.position = 'static';
                             frame.style.width = `${targetWidth}px`;
-                            frame.style.height = '1800px'; // Задаем запас высоты для прокрутки страниц
+                            frame.style.height = '1800px'; 
                             container.style.overflowX = 'auto'; 
                             frame.setAttribute('data-zoomed', 'true');
                           } else {
-                            // ТАП 2: Возвращаем в исходный аккуратный режим по ширине экрана смартфона
                             frame.style.transform = `scale(${scaleFactor})`;
                             frame.style.position = 'absolute';
                             frame.style.width = `${targetWidth}px`;
                             frame.style.height = `${100 / scaleFactor}%`;
                             container.style.overflowX = 'hidden';
-                            container.scrollLeft = 0; // Возвращаем горизонтальный сдвиг в начало
-                            container.scrollTop = 0;  // Возвращаем вертикальный скролл на самый верх документа
+                            container.scrollLeft = 0; 
+                            container.scrollTop = 0;  
                             frame.setAttribute('data-zoomed', 'false');
                           }
                         }}
@@ -862,14 +780,11 @@ const initPushNotifications = async (currentUser) => {
                         <iframe 
                           src={finalUrl} 
                           title="Doc" 
-                          /* ИСПРАВЛЕНО: pointer-events-none пропускает клики и свайпы напрямую в контейнер, сохраняя нативный скролл */
                           className="border-none p-0 m-0 absolute top-0 left-0 transition-transform duration-200 ease-out pointer-events-none"
                           data-zoomed="false"
                           style={{
                             width: `${targetWidth}px`,
-                            // Высота увеличивается пропорционально сжатию, чтобы документ идеально заполнил 100% высоты окошка
                             height: `${100 / scaleFactor}%`,
-                            // Применяем чистое аппаратное отдаление без багов верстки
                             transform: `scale(${scaleFactor})`,
                             transformOrigin: 'top left'
                           }}
@@ -879,7 +794,6 @@ const initPushNotifications = async (currentUser) => {
                   }
                   
                   return (
-                    /* ДЛЯ ПДФ, КАРТИНОК И ПРОЧЕГО: Оставляем твой исходный рабочий код без изменений */
                     <div className="w-full h-full overflow-auto rounded-lg bg-white border border-slate-200 dark:border-slate-800 p-0 m-0" style={{ WebkitOverflowScrolling: 'touch' }}>
                       <iframe src={finalUrl} width="100%" height="100%" className="w-full h-full min-h-[500px] border-none p-0 m-0" title="Doc" />
                     </div>
@@ -899,7 +813,6 @@ const initPushNotifications = async (currentUser) => {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                        {/* ИСПРАВЛЕНО: Лимит в 80 строк для мгновенного рендеринга на смартфонах */}
                         {filteredItems.slice(0, 80).map(item => (
                           <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition">
                             <td className="p-2 whitespace-nowrap overflow-hidden">
@@ -956,7 +869,6 @@ const initPushNotifications = async (currentUser) => {
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
           <div className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl max-w-md w-full max-h-[70vh] flex flex-col overflow-hidden border dark:border-slate-800 animate-in fade-in zoom-in-95 duration-150">
             
-            {/* Шапка модального окна */}
             <div className="p-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 flex items-center justify-between">
               <div className="min-w-0 flex-1">
                 <span className="text-[9px] font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/50 px-1 py-0.2 rounded border border-amber-200 uppercase tracking-wider">История стоимости товара</span>
@@ -966,6 +878,7 @@ const initPushNotifications = async (currentUser) => {
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
               </button>
             </div>
+
             <div className="flex-1 overflow-auto p-3 space-y-2 bg-slate-50 dark:bg-slate-950/20">
               {historyLoading ? (
                 <div className="text-center py-6 text-slate-400 text-xs font-medium animate-pulse">ЗАГРУЗКА ИСТОРИИ...</div>
@@ -1004,6 +917,7 @@ const initPushNotifications = async (currentUser) => {
                 </div> 
               )} 
             </div> 
+
             <div className="p-2 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 flex justify-end shrink-0">
               <button onClick={() => setSelectedHistoryItem(null)} className="px-4 py-1.5 bg-slate-800 text-white text-xs font-bold rounded-lg shadow-xs">Закрыть</button>
             </div>
@@ -1024,7 +938,7 @@ const initPushNotifications = async (currentUser) => {
         }
         .animate-fade-in {
           animation: PremiumFadeIn 0.25s cubic-bezier(0.215, 0.610, 0.355, 1) forwards;
-          will-change: transform, opacity; /* Заранее готовит GPU телефона к плавной отрисовке */
+          will-change: transform, opacity; 
         }
         .style-bounce-scroll {
           scroll-behavior: smooth;
