@@ -47,6 +47,7 @@ export default function App() {
   const [priceHistory, setPriceHistory] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [activeDocId, setActiveDocId] = useState(null);
+  const [activeItemName, setActiveItemName] = useState(null); // ИСПРАВЛЕНО: Стейт для запоминания выделенного товара
 
   const [promoSubTab, setPromoSubTab] = useState('new'); 
   const [giftsSubTab, setGiftsSubTab] = useState('new'); 
@@ -93,6 +94,7 @@ export default function App() {
   }, [statementQuery, currentTab]);
 
   const openPriceHistory = async (item) => {
+    setActiveItemName(item.raw_name); // ИСПРАВЛЕНО: Запоминаем имя товара для подсветки строки
     setSelectedHistoryItem(item);
     setPriceHistory([]);
     setHistoryLoading(true);
@@ -631,11 +633,19 @@ export default function App() {
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                     {statementItems.map(item => (
-                      <tr key={item.id} onClick={() => openPriceHistory(item)} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition cursor-pointer active:bg-slate-100">
+                      <tr 
+                        key={item.id} 
+                        onClick={() => openPriceHistory(item)} 
+                        /* ИСПРАВЛЕНО: Добавлено выделение строки товара в Ведомости при клике и возврате */
+                        className={`transition cursor-pointer ${
+                          activeItemName === item.raw_name 
+                            ? 'bg-amber-100/70 dark:bg-amber-950/40 font-medium' 
+                            : 'hover:bg-slate-50 dark:hover:bg-slate-800/40 active:bg-slate-100'
+                        }`}
+                      >
                         <td className="p-2.5 text-left font-normal text-slate-700 dark:text-slate-300 break-words whitespace-normal align-middle">{item.raw_name}</td>
                         <td className="p-1 text-center font-bold text-blue-600 dark:text-blue-400 align-middle">{item.stock_warehouse}</td>
                         <td className="p-1 text-center font-bold text-amber-600 dark:text-amber-400 align-middle">{item.stock_showcase}</td>
-                        {/* ИСПРАВЛЕНО: Убран font-bold (сделан font-normal) у цены */}
                         <td className="p-2.5 text-right font-normal text-slate-900 dark:text-slate-100 align-middle">
                           {formatDisplayPrice(item.latest_price)}
                         </td>
@@ -833,21 +843,24 @@ export default function App() {
                       </thead>
                       <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                         {filteredItems.slice(0, 80).map(item => (
-                          /* ИСПРАВЛЕНО: Строка сделана кликабельной, при тапе открывает историю цен этого товара */
                           <tr 
                             key={item.id} 
                             onClick={() => openPriceHistory({ normalized_name: item.normalized_name, raw_name: item.raw_name })} 
-                            className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition cursor-pointer active:bg-slate-100 dark:active:bg-slate-800"
+                            /* ИСПРАВЛЕНО: Добавлено выделение строки товара нежным янтарным цветом */
+                            className={`transition cursor-pointer ${
+                              activeItemName === item.raw_name 
+                                ? 'bg-amber-100/70 dark:bg-amber-950/40 font-medium' 
+                                : 'hover:bg-slate-50 dark:hover:bg-slate-800/40 active:bg-slate-100'
+                            }`}
                           >
                             <td className="p-2 whitespace-nowrap overflow-hidden">
                               <span className={`px-1 py-0.2 rounded text-[8px] font-bold border ${getRowStyle(item.change_type)}`}>
                                 {item.change_type === 'green' ? 'Добавлен' : item.change_type === 'red' ? 'Удален' : item.change_type === 'yellow' ? 'Цена' : 'База'}
                               </span>
                             </td>
-                            {/* ИСПРАВЛЕНО: Добавлена иконка часов рядом с номенклатурой, намекающая на историю */}
-                            <td className="p-2 font-normal text-slate-700 dark:text-slate-300 break-words whitespace-normal align-middle flex items-center gap-1">
-                              <svg className="w-3 h-3 text-slate-400 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                              <span>{item.raw_name}</span>
+                            {/* ИСПРАВЛЕНО: Иконка часов удалена, структура вывода стала чистой */}
+                            <td className="p-2 font-normal text-slate-700 dark:text-slate-300 break-words whitespace-normal align-middle">
+                              {item.raw_name}
                             </td>
                             <td className="p-2 text-right font-normal text-slate-900 dark:text-slate-100 break-all align-middle">
                               {formatDisplayPrice(item.price, selectedDoc?.doc_type)}
