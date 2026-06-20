@@ -101,14 +101,15 @@ export default function App() {
     try {
       const { data, error } = await supabase
         .from('document_items')
-        .select('price, created_at, documents:document_id(file_name, promo_number)')
+        .select('price, created_at, documents:document_id(file_name, promo_number, doc_type, file_url)')
         .eq('normalized_name', item.normalized_name)
         .order('created_at', { ascending: false });
+        
       if (error) throw error;
       setPriceHistory(data || []);
     } catch (err) {
       console.error("Ошибка загрузки истории цен:", err.message);
-    } finally {
+    } finally { // ИСПРАВЛЕНО: теперь пишется строго с двумя "ll"
       setHistoryLoading(false);
     }
   };
@@ -448,9 +449,10 @@ const initPushNotifications = async (currentUser) => {
   };
 
   // ИСПРАВЛЕНО: Парсинг и разделение слитных цен Excel без валюты (Подарки не затрагивает)
+  // ИСПРАВЛЕНО: Автоматически форматирует и разделяет пробелами цены переоценок по знаку ₸
   const formatDisplayPrice = (price, docType) => {
     if (!price) return '—';
-    if (docType === 'revaluation') {
+    if (docType === 'revaluation' || price.includes('₸')) {
       let clean = price.replace(/[₸\s]/g, '').trim();
       if (!isNaN(clean) && clean !== '') {
         return Number(clean).toLocaleString('ru-RU');
@@ -703,7 +705,9 @@ const initPushNotifications = async (currentUser) => {
                         <td className="p-2.5 text-left font-normal text-slate-700 dark:text-slate-300 break-words whitespace-normal align-middle">{item.raw_name}</td>
                         <td className="p-2.5 text-center font-bold text-blue-600 dark:text-blue-400 align-middle">{item.stock_warehouse}</td>
                         <td className="p-2.5 text-center font-bold text-amber-600 dark:text-amber-400 align-middle">{item.stock_showcase}</td>
-                        <td className="p-2.5 text-right font-bold text-slate-900 dark:text-slate-100 align-middle">{item.latest_price || '—'}</td>
+                        <td className="p-2.5 text-right font-bold text-slate-900 dark:text-slate-100 align-middle">
+  {formatDisplayPrice(item.latest_price)}
+</td>
                       </tr>
                     ))}
                   </tbody>
@@ -958,7 +962,9 @@ const initPushNotifications = async (currentUser) => {
       {/* ================= МОДАЛЬНОЕ ОКНО ИСТОРИИ ЦЕН ТОВАРА ================= */}
       {selectedHistoryItem && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl max-w-md w-full max-h-[70vh] flex flex-col overflow-hidden border dark:border-slate-800">
+          <div className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl max-w-md w-full max-h-[70vh] flex flex-col overflow-hidden border dark:border-slate-800 animate-in fade-in zoom-in-95 duration-150">
+            
+            {/* Шапка модального окна */}
             <div className="p-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 flex items-center justify-between">
               <div className="min-w-0 flex-1">
                 <span className="text-[9px] font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/50 px-1 py-0.2 rounded border border-amber-200 uppercase tracking-wider">История стоимости товара</span>
@@ -969,6 +975,7 @@ const initPushNotifications = async (currentUser) => {
               </button>
             </div>
 
+            {/* Тело модального окна со скроллом */}
             <div className="flex-1 overflow-auto p-3 space-y-2 bg-slate-50 dark:bg-slate-950/20">
               {historyLoading ? (
                 <div className="text-center py-6 text-slate-400 text-xs font-medium animate-pulse">ЗАГРУЗКА ИСТОРИИ...</div>
@@ -979,22 +986,36 @@ const initPushNotifications = async (currentUser) => {
                   {priceHistory.map((hist, idx) => (
                     <div key={idx} className="bg-white dark:bg-slate-900 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 shadow-2xs">
                       <div className="min-w-0 flex-1">
-                        <p className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate">
-                          {hist.documents?.promo_number || 'Акция'}: {hist.documents?.file_name || 'Инфо'}
-                        </p>
+                        <div className="text-xs font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5 overflow-hidden">
+                          <span className="truncate">{hist.documents?.promo_number || 'Акция'}: {hist.documents?.file_name || 'Инфо'}</span>
+                          {hist.documents?.file_url && (
+                            <a 
+                              href={hist.documents.file_url} 
+                              target="_blank" 
+                              rel="noopener noreferrer" 
+                              className="text-blue-500 hover:text-blue-600 dark:text-blue-400 shrink-0 p-0.5 active:scale-90 transition-transform"
+                              title="Открыть исходный документ"
+                            >
+                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                              </svg>
+                            </a>
+                          )}
+                        </div>
                         <p className="text-[10px] text-slate-400 mt-0.5">{formatCardDate(hist.created_at)}</p>
                       </div>
                       <div className="text-right shrink-0">
                         <span className="text-xs font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 px-2 py-0.5 rounded-md border border-blue-100 dark:border-blue-900">
-                          {hist.price || '—'}
+                          {formatDisplayPrice(hist.price, hist.documents?.doc_type)}
                         </span>
                       </div>
                     </div>
                   ))}
-                </div>
-              )}
-            </div>
+                </div> {/* ИСПРАВЛЕНО: Закрытие тега space-y-1.5 */}
+              )} {/* ИСПРАВЛЕНО: Закрытие логического условия */}
+            </div> {/* ИСПРАВЛЕНО: Закрытие тега flex-1 overflow-auto */}
 
+            {/* Подвал модального окна */}
             <div className="p-2 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 flex justify-end shrink-0">
               <button onClick={() => setSelectedHistoryItem(null)} className="px-4 py-1.5 bg-slate-800 text-white text-xs font-bold rounded-lg shadow-xs">Закрыть</button>
             </div>
@@ -1002,6 +1023,7 @@ const initPushNotifications = async (currentUser) => {
         </div>
       )}
 
+      {/* Блок глобальных стилей приложения */}
       <style>{`
         /* ИСПРАВЛЕНО: Нативная физика мягкого выплывания списков (Spring Physics) через видеокарту смартфона */
         @keyframes PremiumFadeIn {
