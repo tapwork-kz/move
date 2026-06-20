@@ -304,15 +304,7 @@ export default function App() {
         *,
         processed_by:users!processed_by_iin(full_name),
         completed_by:users!completed_by_iin(full_name),
-        document_items(
-          price, 
-          is_in_stock, 
-          change_type, 
-          raw_name,
-          normalized_name,
-          /* !left принудительно включает LEFT JOIN, спасая документы от исчезновения */
-          inventory:inventory_normalized_name_key!left(stock_warehouse, stock_showcase)
-        )
+        document_items(price, is_in_stock, change_type, raw_name)
       `);
 
       if (user.role !== 'Директор' && user.role !== 'Супервайзер' && user.role !== 'Инфо-консультант') {
@@ -383,15 +375,48 @@ export default function App() {
   };
 
   const openDocDetails = async (doc) => {
-    setActiveDocId(doc.id); // ИСПРАВЛЕНО: Фиксируем ID просматриваемого документа
+    setActiveDocId(doc.id);
     setSelectedDoc(doc);
     setModalTab('in_stock');
     setItemSearch('');
     try {
-      const { data, error } = await supabase.from('document_items').select('*').eq('document_id', doc.id);
-      if (error) throw error;
-      setDocItems(data || []);
-    } catch (err) { console.error(err.message); }
+      // 1. Получаем элементы документа
+      const { data: itemsData, error: itemsError } = await supabase.from('document_items').select('*').eq('document_id', doc.id);
+      if (itemsError) throw itemsError;
+
+      if (itemsData && itemsData.length > 0) {
+        // 2. Собираем уникальные normalized_name товаров этой акции для точечного запроса остатков
+        const namesToFetch = itemsData.map(i => i.normalized_name).filter(Boolean);
+        
+        if (namesToFetch.length > 0) {
+          const { data: invData, error: invError } = await supabase
+            .from('inventory')
+            .select('normalized_name, stock_warehouse, stock_showcase')
+            .in('normalized_name', namesToFetch);
+
+          if (!invError && invData) {
+            // Создаем быструю карту остатков [имя]: {склад, витрина}
+            const invMap = {};
+            invData.forEach(inv => {
+              invMap[inv.normalized_name] = {
+                wh: inv.stock_warehouse ?? 0,
+                sc: inv.stock_showcase ?? 0
+              };
+            });
+
+            // Инжектируем остатки напрямую в объекты элементов документа
+            const enrichedItems = itemsData.map(item => ({
+              ...item,
+              stock_wh: invMap[item.normalized_name]?.wh ?? 0,
+              stock_sc: invMap[item.normalized_name]?.sc ?? 0
+            }));
+            setDocItems(enrichedItems);
+            return;
+          }
+        }
+      }
+      setDocItems(itemsData || []);
+    } catch (err) { console.error("Ошибка локальной подгрузки остатков:", err.message); }
   };
 
   const executeStatusChange = async () => {
@@ -842,7 +867,7 @@ export default function App() {
                     <table className="w-full table-fixed border-collapse text-xs">
                       <thead>
                         <tr className="bg-slate-100 dark:bg-slate-800 border-b dark:border-slate-700 text-slate-500 dark:text-slate-400 uppercase text-[9px] font-bold">
-                          {/* ИСПРАВЛЕНО: Немного расширяем колонку w-[95px], чтобы остатки встали идеально и без переносов */}
+                          {/* ИСПРАВЛЕНО: Расширяем до 95px, чтобы бейджи остатков встали ровно в ряд */}
                           <th className="p-2 w-[95px] shrink-0">Статус / Ост.</th>
                           <th className="p-2 text-left">{selectedDoc?.header_col1 || 'Наименование'}</th>
                           <th className="p-2 text-right w-[85px] shrink-0">
@@ -851,43 +876,36 @@ export default function App() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                        {filteredItems.slice(0, 80).map(item => {
-                          // ИСПРАВЛЕНО: Безопасно извлекаем остатки, страхуя на случай отсутствия товара в inventory нулями
-                          const whStock = item.inventory?.stock_warehouse ?? 0;
-                          const scStock = item.inventory?.stock_showcase ?? 0;
-
-                          return (
-                            <tr 
-                              key={item.id} 
-                              onClick={() => openPriceHistory({ normalized_name: item.normalized_name, raw_name: item.raw_name })} 
-                              className={`transition cursor-pointer ${
-                                activeItemName === item.raw_name 
-                                  ? 'bg-amber-100/70 dark:bg-amber-950/40 font-medium' 
-                                  : 'hover:bg-slate-50 dark:hover:bg-slate-800/40 active:bg-slate-100'
-                              }`}
-                            >
-                              {/* ИСПРАВЛЕНО: В ячейку статуса добавляем вертикальный контейнер со статусом и остатками */}
-                              <td className="p-2 whitespace-nowrap overflow-hidden align-middle">
-                                <div className="flex flex-col gap-1 items-start">
-                                  <span className={`px-1 py-0.2 rounded text-[8px] font-bold border ${getRowStyle(item.change_type)}`}>
-                                    {item.change_type === 'green' ? 'Добавлен' : item.change_type === 'red' ? 'Удален' : item.change_type === 'yellow' ? 'Цена' : 'База'}
-                                  </span>
-                                  {/* Компактный вывод остатков под бейджем операции */}
-                                  <div className="flex items-center gap-1 text-[8px] font-bold tracking-tight">
-                                    <span className="text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 px-0.5 rounded">Ск:{whStock}</span>
-                                    <span className="text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 px-0.5 rounded">Вт:{scStock}</span>
-                                  </div>
+                        {filteredItems.slice(0, 80).map(item => (
+                          <tr 
+                            key={item.id} 
+                            onClick={() => openPriceHistory({ normalized_name: item.normalized_name, raw_name: item.raw_name })} 
+                            className={`transition cursor-pointer ${
+                              activeItemName === item.raw_name 
+                                ? 'bg-amber-100/70 dark:bg-amber-950/40 font-medium' 
+                                : 'hover:bg-slate-50 dark:hover:bg-slate-800/40 active:bg-slate-100'
+                            }`}
+                          >
+                            {/* ИСПРАВЛЕНО: Вертикальный стек (Бейдж статуса операции + Строка остатков склада и витрины) */}
+                            <td className="p-2 whitespace-nowrap overflow-hidden align-middle">
+                              <div className="flex flex-col gap-1 items-start">
+                                <span className={`px-1 py-0.2 rounded text-[8px] font-bold border ${getRowStyle(item.change_type)}`}>
+                                  {item.change_type === 'green' ? 'Добавлен' : item.change_type === 'red' ? 'Удален' : item.change_type === 'yellow' ? 'Цена' : 'База'}
+                                </span>
+                                <div className="flex items-center gap-1 text-[8px] font-bold tracking-tight">
+                                  <span className="text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 px-0.5 rounded">Ск:{item.stock_wh ?? 0}</span>
+                                  <span className="text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 px-0.5 rounded">Вт:{item.stock_sc ?? 0}</span>
                                 </div>
-                              </td>
-                              <td className="p-2 font-normal text-slate-700 dark:text-slate-300 break-words whitespace-normal align-middle">
-                                {item.raw_name}
-                              </td>
-                              <td className="p-2 text-right font-normal text-slate-900 dark:text-slate-100 break-all align-middle">
-                                {formatDisplayPrice(item.price, selectedDoc?.doc_type)}
-                              </td>
-                            </tr>
-                          );
-                        })}
+                              </div>
+                            </td>
+                            <td className="p-2 font-normal text-slate-700 dark:text-slate-300 break-words whitespace-normal align-middle">
+                              {item.raw_name}
+                            </td>
+                            <td className="p-2 text-right font-normal text-slate-900 dark:text-slate-100 break-all align-middle">
+                              {formatDisplayPrice(item.price, selectedDoc?.doc_type)}
+                            </td>
+                          </tr>
+                        ))}
                       </tbody>
                     </table>
                   </div>
