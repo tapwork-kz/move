@@ -98,7 +98,16 @@ export default function App() {
     try {
       const { data, error } = await supabase
         .from('document_items')
-        .select('price, created_at, documents:document_id(file_name, promo_number, doc_type, file_url)')
+        .select(`
+          price, 
+          created_at, 
+          documents:document_id(
+            *,
+            processed_by:users!processed_by_iin(full_name),
+            completed_by:users!completed_by_iin(full_name),
+            document_items(price, is_in_stock, change_type, raw_name)
+          )
+        `) // ИСПРАВЛЕНО: Вытягиваем полный объект документа со связями пользователей и товаров для открытия окна
         .eq('normalized_name', item.normalized_name)
         .order('created_at', { ascending: false });
         
@@ -611,18 +620,21 @@ export default function App() {
                   <thead>
                     <tr className="bg-slate-100 dark:bg-slate-800 border-b dark:border-slate-700 text-slate-500 dark:text-slate-400 uppercase text-[9px] font-bold">
                       <th className="p-2.5 text-left">Номенклатура</th>
-                      <th className="p-2.5 text-center w-[55px]">Склад</th>
-                      <th className="p-2.5 text-center w-[55px]">Витр.</th>
-                      <th className="p-2.5 text-right w-[85px]">Цена</th>
+                      {/* ИСПРАВЛЕНО: Колонки склада и витрины сдвинуты ближе (w-[48px]) */}
+                      <th className="p-1 text-center w-[48px]">Склад</th>
+                      <th className="p-1 text-center w-[48px]">Витр.</th>
+                      {/* ИСПРАВЛЕНО: Ширина цены уменьшена до 70px */}
+                      <th className="p-2.5 text-right w-[70px]">Цена</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                     {statementItems.map(item => (
                       <tr key={item.id} onClick={() => openPriceHistory(item)} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition cursor-pointer active:bg-slate-100">
                         <td className="p-2.5 text-left font-normal text-slate-700 dark:text-slate-300 break-words whitespace-normal align-middle">{item.raw_name}</td>
-                        <td className="p-2.5 text-center font-bold text-blue-600 dark:text-blue-400 align-middle">{item.stock_warehouse}</td>
-                        <td className="p-2.5 text-center font-bold text-amber-600 dark:text-amber-400 align-middle">{item.stock_showcase}</td>
-                        <td className="p-2.5 text-right font-bold text-slate-900 dark:text-slate-100 align-middle">
+                        <td className="p-1 text-center font-bold text-blue-600 dark:text-blue-400 align-middle">{item.stock_warehouse}</td>
+                        <td className="p-1 text-center font-bold text-amber-600 dark:text-amber-400 align-middle">{item.stock_showcase}</td>
+                        {/* ИСПРАВЛЕНО: Убран font-bold (сделан font-normal) у цены */}
+                        <td className="p-2.5 text-right font-normal text-slate-900 dark:text-slate-100 align-middle">
                           {formatDisplayPrice(item.latest_price)}
                         </td>
                       </tr>
@@ -886,34 +898,54 @@ export default function App() {
                 <div className="text-center py-6 text-slate-400 text-xs font-medium">Товар не участвовал в прошлых промо-кампаниях</div>
               ) : (
                 <div className="space-y-1.5">
-                  {priceHistory.map((hist, idx) => (
-                    <div key={idx} className="bg-white dark:bg-slate-900 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 shadow-2xs">
-                      <div className="min-w-0 flex-1">
-                        <div className="text-xs font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5 overflow-hidden">
-                          <span className="truncate">{hist.documents?.promo_number || 'Акция'}: {hist.documents?.file_name || 'Инфо'}</span>
-                          {hist.documents?.file_url && (
-                            <a 
-                              href={hist.documents.file_url} 
-                              target="_blank" 
-                              rel="noopener noreferrer" 
-                              className="text-blue-500 hover:text-blue-600 dark:text-blue-400 shrink-0 p-0.5 active:scale-90 transition-transform"
-                              title="Открыть исходный документ"
-                            >
-                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                              </svg>
-                            </a>
-                          )}
+                  {priceHistory.map((hist, idx) => {
+                    const doc = hist.documents;
+                    if (!doc) return null;
+                    return (
+                      <div
+                        key={idx}
+                        onClick={() => { openDocDetails(doc); }}
+                        className="bg-white dark:bg-slate-900 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 active:scale-[0.97] transition-transform duration-100 ease-out shadow-2xs relative cursor-pointer text-left"
+                      >
+                        <div className="space-y-0.5 min-w-0 flex-1 pr-16">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[8px] font-bold px-1 rounded border dark:border-slate-700">
+                              {doc.promo_number || 'АКЦИЯ'}
+                            </span>
+                            {(doc.doc_type === 'gift' || doc.doc_type === 'media') && (
+                              <span className="bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 text-[8px] font-black px-1 rounded border border-purple-200 dark:border-purple-900">
+                                Подарок / Комплект
+                              </span>
+                            )}
+                            <span className="text-[9px] text-slate-400 font-medium">{doc.dept}</span>
+                          </div>
+                          <h3 className="font-normal text-slate-700 dark:text-slate-200 text-xs truncate">{doc.file_name}</h3>
+                          
+                          <div className="flex flex-wrap gap-x-2 text-[9px] pt-0.5">
+                            <div className="text-slate-400 dark:text-slate-500 flex flex-wrap gap-x-2">
+                              {doc.processed_by?.full_name && (
+                                <span>Оформил: {doc.processed_by.full_name} {doc.processed_at && `— ${formatCardDate(doc.processed_at)}`}</span>
+                              )}
+                              {doc.completed_by?.full_name && (
+                                <span>Закрыл: {doc.completed_by.full_name} {doc.completed_at && `— ${formatCardDate(doc.completed_at)}`}</span>
+                              )}
+                            </div>
+                          </div>
                         </div>
-                        <p className="text-[10px] text-slate-400 mt-0.5">{formatCardDate(hist.created_at)}</p>
+
+                        {/* Фиксированная плашка стоимости товара конкретно в этой акции */}
+                        <div className="shrink-0 text-right">
+                          <span className="text-xs font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 px-2 py-0.5 rounded-md border border-blue-100 dark:border-blue-900 whitespace-nowrap">
+                            {formatDisplayPrice(hist.price, doc.doc_type)}
+                          </span>
+                        </div>
+
+                        <div className="absolute top-2.5 right-2.5 text-[8px] text-slate-400 dark:text-slate-500 font-medium">
+                          <span>{formatCardDate(doc.created_at)}</span>
+                        </div>
                       </div>
-                      <div className="text-right shrink-0">
-                        <span className="text-xs font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 px-2 py-0.5 rounded-md border border-blue-100 dark:border-blue-900">
-                          {formatDisplayPrice(hist.price, hist.documents?.doc_type)}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div> 
               )} 
             </div> 
