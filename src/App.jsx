@@ -46,6 +46,7 @@ export default function App() {
   const [selectedHistoryItem, setSelectedHistoryItem] = useState(null);
   const [priceHistory, setPriceHistory] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [activeDocId, setActiveDocId] = useState(null);
 
   const [promoSubTab, setPromoSubTab] = useState('new'); 
   const [giftsSubTab, setGiftsSubTab] = useState('new'); 
@@ -372,6 +373,7 @@ export default function App() {
   };
 
   const openDocDetails = async (doc) => {
+    setActiveDocId(doc.id); // ИСПРАВЛЕНО: Фиксируем ID просматриваемого документа
     setSelectedDoc(doc);
     setModalTab('in_stock');
     setItemSearch('');
@@ -654,7 +656,12 @@ export default function App() {
               <div
                 key={doc.id}
                 onClick={() => openDocDetails(doc)}
-                className="bg-white dark:bg-slate-900 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 active:scale-[0.97] transition-transform duration-100 ease-out shadow-2xs relative cursor-pointer"
+                /* ИСПРАВЛЕНО: Динамическая рамка и мягкий фон, если документ выделен/активен */
+                className={`p-2.5 rounded-lg border flex items-center justify-between gap-3 active:scale-[0.97] transition-[transform,background-color,border-color] duration-100 ease-out shadow-2xs relative cursor-pointer ${
+                  activeDocId === doc.id 
+                    ? 'bg-blue-50/50 dark:bg-blue-950/20 border-blue-400 dark:border-blue-800 border-l-4 border-l-blue-500 pl-2' 
+                    : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'
+                }`}
               >
                 <div className="space-y-0.5 min-w-0 flex-1 pr-16">
                   <div className="flex items-center gap-1.5 flex-wrap">
@@ -826,14 +833,21 @@ export default function App() {
                       </thead>
                       <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                         {filteredItems.slice(0, 80).map(item => (
-                          <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition">
+                          /* ИСПРАВЛЕНО: Строка сделана кликабельной, при тапе открывает историю цен этого товара */
+                          <tr 
+                            key={item.id} 
+                            onClick={() => openPriceHistory({ normalized_name: item.normalized_name, raw_name: item.raw_name })} 
+                            className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition cursor-pointer active:bg-slate-100 dark:active:bg-slate-800"
+                          >
                             <td className="p-2 whitespace-nowrap overflow-hidden">
                               <span className={`px-1 py-0.2 rounded text-[8px] font-bold border ${getRowStyle(item.change_type)}`}>
                                 {item.change_type === 'green' ? 'Добавлен' : item.change_type === 'red' ? 'Удален' : item.change_type === 'yellow' ? 'Цена' : 'База'}
                               </span>
                             </td>
-                            <td className="p-2 font-normal text-slate-700 dark:text-slate-300 break-words whitespace-normal align-middle">
-                              {item.raw_name}
+                            {/* ИСПРАВЛЕНО: Добавлена иконка часов рядом с номенклатурой, намекающая на историю */}
+                            <td className="p-2 font-normal text-slate-700 dark:text-slate-300 break-words whitespace-normal align-middle flex items-center gap-1">
+                              <svg className="w-3 h-3 text-slate-400 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                              <span>{item.raw_name}</span>
                             </td>
                             <td className="p-2 text-right font-normal text-slate-900 dark:text-slate-100 break-all align-middle">
                               {formatDisplayPrice(item.price, selectedDoc?.doc_type)}
@@ -905,7 +919,12 @@ export default function App() {
                       <div
                         key={idx}
                         onClick={() => { openDocDetails(doc); }}
-                        className="bg-white dark:bg-slate-900 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 active:scale-[0.97] transition-transform duration-100 ease-out shadow-2xs relative cursor-pointer text-left"
+                        /* ИСПРАВЛЕНО: Выделяем синим цветом документ внутри истории, если он в данный момент является активным на экране */
+                        className={`p-2.5 rounded-lg border flex items-center justify-between gap-3 active:scale-[0.97] transition-[transform,background-color,border-color] duration-100 ease-out shadow-2xs relative cursor-pointer text-left ${
+                          activeDocId === doc.id 
+                            ? 'bg-blue-50/50 dark:bg-blue-950/20 border-blue-400 dark:border-blue-800 border-l-4 border-l-blue-500 pl-2' 
+                            : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'
+                        }`}
                       >
                         <div className="space-y-0.5 min-w-0 flex-1 pr-16">
                           <div className="flex items-center gap-1.5 flex-wrap">
