@@ -310,8 +310,8 @@ export default function App() {
           change_type, 
           raw_name,
           normalized_name,
-          /* ИСПРАВЛЕНО: Связываем товары с таблицей инвентаря по normalized_name и забираем остатки */
-          inventory:normalized_name(stock_warehouse, stock_showcase)
+          /* !left принудительно включает LEFT JOIN, спасая документы от исчезновения */
+          inventory:inventory_normalized_name_key!left(stock_warehouse, stock_showcase)
         )
       `);
 
