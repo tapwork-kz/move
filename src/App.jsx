@@ -310,7 +310,6 @@ export default function App() {
           change_type, 
           raw_name,
           normalized_name,
-          /* ИСПРАВЛЕНО: Связываем товары с таблицей инвентаря по normalized_name и забираем актуальные остатки */
           inventory:normalized_name(stock_warehouse, stock_showcase)
         )
       `);
@@ -842,7 +841,7 @@ export default function App() {
                     <table className="w-full table-fixed border-collapse text-xs">
                       <thead>
                         <tr className="bg-slate-100 dark:bg-slate-800 border-b dark:border-slate-700 text-slate-500 dark:text-slate-400 uppercase text-[9px] font-bold">
-                          {/* ИСПРАВЛЕНО: Ширина колонки расширена до 95px для красивого вмещения остатков */}
+                          {/* ИСПРАВЛЕНО: Расширили колонку до 95px для размещения остатков */}
                           <th className="p-2 w-[95px] shrink-0">Статус / Ост.</th>
                           <th className="p-2 text-left">{selectedDoc?.header_col1 || 'Наименование'}</th>
                           <th className="p-2 text-right w-[85px] shrink-0">
@@ -852,7 +851,7 @@ export default function App() {
                       </thead>
                       <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                         {filteredItems.slice(0, 80).map(item => {
-                          {/* ИСПРАВЛЕНО: Безопасно извлекаем остатки из вложенного объекта инвентаря */}
+                          {/* ИСПРАВЛЕНО: Извлекаем остатки, страхуя нулями на случай отсутствия данных */}
                           const whStock = item.inventory?.stock_warehouse ?? 0;
                           const scStock = item.inventory?.stock_showcase ?? 0;
 
@@ -866,26 +865,18 @@ export default function App() {
                                   : 'hover:bg-slate-50 dark:hover:bg-slate-800/40 active:bg-slate-100'
                               }`}
                             >
-                              {/* ИСПРАВЛЕНО: Колонка статуса теперь содержит вертикальный стек со статусом и остатками */}
+                              {/* ИСПРАВЛЕНО: Превратили ячейку в вертикальный блок: Статус + Остатки */}
                               <td className="p-2 whitespace-nowrap overflow-hidden align-middle">
                                 <div className="flex flex-col gap-1 items-start">
                                   <span className={`px-1 py-0.2 rounded text-[8px] font-bold border ${getRowStyle(item.change_type)}`}>
                                     {item.change_type === 'green' ? 'Добавлен' : item.change_type === 'red' ? 'Удален' : item.change_type === 'yellow' ? 'Цена' : 'База'}
                                   </span>
-                                  {/* Компактная строка остатков */}
                                   <div className="flex items-center gap-1 text-[8px] font-bold tracking-tight">
                                     <span className="text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 px-0.5 rounded">Ск:{whStock}</span>
                                     <span className="text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 px-0.5 rounded">Вт:{scStock}</span>
                                   </div>
                                 </div>
                               </td>
-                              <td className="p-2 font-normal text-slate-700 dark:text-slate-300 break-words whitespace-normal align-middle">
-                                {item.raw_name}
-                              </td>
-                              <td className="p-2 text-right font-normal text-slate-900 dark:text-slate-100 break-all align-middle">
-                                {formatDisplayPrice(item.price, selectedDoc?.doc_type)}
-                              </td>
-                            </tr>
                           );
                         })}
                       </tbody>
