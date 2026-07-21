@@ -225,7 +225,10 @@ export default function App() {
           if (doc.doc_type !== 'media' && !hasStock(doc)) return;
 
           let computedStatus = doc.status;
-          if (doc.period_end && doc.period_end < todayStr) {
+          // ИСПРАВЛЕНО: Защита от ложного архивирования счетчиков при корректировках файлов
+          const isCorrection = doc.file_name ? doc.file_name.toLowerCase().includes('корректировк') : false;
+
+          if (doc.period_end && doc.period_end < todayStr && !isCorrection) {
             if (doc.status === 'new' && !hasStock(doc)) computedStatus = 'archive';
             else if (doc.status === 'processed') computedStatus = 'completed';
           }
@@ -341,7 +344,11 @@ export default function App() {
       const todayStr = new Date().toISOString().split('T')[0];
       let mapped = (data || []).map(doc => {
         let s = doc.status;
-        if (doc.period_end && doc.period_end < todayStr) {
+        // ИСПРАВЛЕНО: Проверяем, является ли документ корректировкой распоряжения
+        const isCorrection = doc.file_name ? doc.file_name.toLowerCase().includes('корректировк') : false;
+
+        // Если это корректировка, мы не отправляем её автоматически в архив/завершенные по дате
+        if (doc.period_end && doc.period_end < todayStr && !isCorrection) {
           if (doc.status === 'new' && !hasStock(doc)) s = 'archive';
           else if (doc.status === 'processed') s = 'completed';
         }
@@ -721,7 +728,8 @@ export default function App() {
                   <h3 className="font-normal text-slate-700 dark:text-slate-200 text-xs sm:text-sm truncate transition-colors duration-300">{doc.file_name}</h3>
                   
                   <div className="flex flex-wrap gap-x-2 text-[9px] pt-0.5">
-                    {!hasStock(doc) && doc.status === 'new' && doc.doc_type !== 'media' ? (
+                    {/* ИСПРАВЛЕНО: Защита от ложного скрытия плашки отсутствия товара на корректировках */}
+                    {!hasStock(doc) && doc.computedStatus === 'new' && doc.doc_type !== 'media' ? (
                       <span className="text-amber-600 dark:text-amber-400 font-bold bg-amber-50 dark:bg-amber-950/30 px-1 rounded transition-colors duration-300">Нет в наличии</span>
                     ) : (
                       <div className="text-slate-400 dark:text-slate-500 flex flex-wrap gap-x-2">
