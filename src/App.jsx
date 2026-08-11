@@ -78,7 +78,7 @@ export default function App() {
     };
   }, [selectedDoc]);
 
-  // Поиск по ведомости
+  // Быстрый поиск по ведомости
   useEffect(() => {
     if (currentTab !== 'statement') return;
     const trimmed = statementQuery.trim();
@@ -119,13 +119,13 @@ export default function App() {
     return () => clearTimeout(delayDebounce);
   }, [statementQuery, currentTab, user, selectedBranch]);
 
-  // Загрузка истории цен
   const openPriceHistory = async (item) => {
     setActiveItemName(item.raw_name);
     setSelectedHistoryItem(item);
     setPriceHistory([]);
     setHistoryLoading(true);
     try {
+      const activeBranch = getActiveBranch();
       const { data, error } = await supabase
         .from('document_items')
         .select(`
@@ -144,7 +144,25 @@ export default function App() {
         .order('created_at', { ascending: false });
         
       if (error) throw error;
-      setPriceHistory(data || []);
+
+      // Фильтруем историю, оставляя статус нужного филиала
+      const filteredData = (data || []).map(hist => {
+        if (!hist.documents) return hist;
+        const bStatus = (hist.documents.branch_statuses || []).find(b => b.branch === activeBranch) || {};
+        return {
+          ...hist,
+          documents: {
+            ...hist.documents,
+            computedStatus: bStatus.status || 'new',
+            branchProcessedBy: bStatus.processed_by?.full_name,
+            branchProcessedAt: bStatus.processed_at,
+            branchCompletedBy: bStatus.completed_by?.full_name,
+            branchCompletedAt: bStatus.completed_at
+          }
+        };
+      });
+
+      setPriceHistory(filteredData);
     } catch (err) {
       console.error("Ошибка загрузки истории цен:", err.message);
     } finally {
@@ -200,22 +218,19 @@ export default function App() {
     setUser(null);
   }, []);
 
+  // ИСПРАВЛЕНО: Один единый useEffect для загрузки документов. 
+  // Мы полностью удалили отдельную функцию updateTabCounters, которая конфликтовала с загрузкой
   useEffect(() => {
     if (!user) return;
     initPushNotifications(user);
-    setDocuments([]); 
     fetchDocuments();
-    updateTabCounters();
 
-    const handleWindowFocus = () => {
-      fetchDocuments();
-      updateTabCounters();
-    };
+    const handleWindowFocus = () => fetchDocuments();
     window.addEventListener('focus', handleWindowFocus);
     return () => window.removeEventListener('focus', handleWindowFocus);
   }, [currentTab, selectedDept, searchQuery, dateFilter, monthFilter, promoSubTab, giftsSubTab, user, selectedBranch]);
 
-  // Проверка наличия товаров документа конкретно в текущем филиале
+  // Функция проверки наличия товаров в активном филиале
   const getBranchInventoryMap = async (activeBranch, docs) => {
     const names = new Set();
     docs.forEach(doc => {
@@ -240,72 +255,6 @@ export default function App() {
       });
     }
     return map;
-  };
-
-  // Перерасчет счетчиков вкладок
-  const updateTabCounters = async () => {
-    if (!user) return;
-    try {
-      const activeBranch = getActiveBranch();
-
-      // МЯГКИЙ JOIN: Без !inner. Если статуса филиала нет, вернет массив []
-      let query = supabase.from('documents').select(`
-        id, dept, doc_type, period_end, file_name,
-        branch_statuses:document_branch_statuses(status, branch),
-        document_items(normalized_name)
-      `);
-
-      const userDepts = Array.isArray(user.dept) ? user.dept : (user.dept ? [user.dept] : []);
-      const hasAllAccess = user.role === 'Директор' || user.role === 'Супервайзер' || user.role === 'Инфо-консультант' || userDepts.includes('ALL');
-
-      if (!hasAllAccess && userDepts.length > 0) {
-        const deptConditions = userDepts.map(d => `dept.ilike.*${d}*`).concat(['dept.ilike.*Другое*']);
-        query = query.or(deptConditions.join(','));
-      } else if (selectedDept) {
-        query = query.eq('dept', selectedDept);
-      }
-
-      const { data: docsData, error } = await query;
-      if (error || !docsData) return;
-
-      const branchStockMap = await getBranchInventoryMap(activeBranch, docsData);
-
-      const checkInBranch = (doc) => {
-        if (!doc.document_items || doc.document_items.length === 0) return true;
-        return doc.document_items.some(i => branchStockMap[i.normalized_name] === true);
-      };
-
-      const todayStr = new Date().toISOString().split('T')[0];
-      const counts = { new: 0, completed: 0, gifts: 0, archive: 0 };
-
-      docsData.forEach(doc => {
-        const inStock = checkInBranch(doc);
-        if (doc.doc_type !== 'media' && !inStock) return;
-
-        // Фильтруем массив статусов под текущий филиал. Если пуст — считаем 'new'
-        const bStatusObj = (doc.branch_statuses || []).find(bs => bs.branch === activeBranch) || {};
-        let computedStatus = bStatusObj.status || 'new';
-
-        const isCorrection = doc.file_name ? doc.file_name.toLowerCase().includes('корректировк') : false;
-
-        if (doc.period_end && doc.period_end < todayStr && !isCorrection) {
-          if (computedStatus === 'new' && !inStock) computedStatus = 'archive';
-          else if (computedStatus === 'processed') computedStatus = 'completed';
-        }
-
-        if (doc.doc_type === 'gift' || doc.doc_type === 'media') {
-          if (computedStatus === 'new' && (doc.doc_type === 'media' || inStock)) counts.gifts++; 
-          else if (computedStatus === 'completed') counts.completed++;
-          else if (computedStatus === 'archive') counts.archive++;
-        } else {
-          if (computedStatus === 'new' && inStock) counts.new++; 
-          else if (computedStatus === 'completed') counts.completed++; 
-          else if (computedStatus === 'archive') counts.archive++;
-        }
-      });
-
-      setTabCounts(counts);
-    } catch (err) { console.error("Ошибка счетчиков:", err); }
   };
 
   const handleTouchStart = (e) => {
@@ -352,15 +301,15 @@ export default function App() {
     localStorage.removeItem('promo_app_user');
   };
 
-  // ОСНОВНАЯ ЗАГРУЗКА СПИСКА
+  // ИСПРАВЛЕНО: Единая, защищенная функция загрузки документов и статусов
   const fetchDocuments = async () => {
     if (!user) return;
     setLoading(true);
-    setDocuments([]); // Очистка перед загрузкой уберет "мигание"
+    setDocuments([]); // Сбрасываем старые документы, чтобы они не мигали при смене филиала
     try {
       const activeBranch = getActiveBranch();
 
-      // МЯГКИЙ JOIN с явными внешними ключами. Гарантированно отдаст документы!
+      // Подтягиваем документы + привязанные статусы ИМЕННО по нашему филиалу + товары
       let query = supabase.from('documents').select(`
         *,
         branch_statuses:document_branch_statuses(
@@ -404,19 +353,20 @@ export default function App() {
       }
 
       const { data, error } = await query.order('created_at', { ascending: false });
-      if (error) {
-        console.error("SUPABASE ERROR:", error);
-        throw error;
-      }
+      if (error) throw error;
 
+      // Проверяем остатки загруженных документов строго на складах выбранного филиала
       const branchStockMap = await getBranchInventoryMap(activeBranch, data || []);
       const todayStr = new Date().toISOString().split('T')[0];
 
+      // Собираем итоговый массив
       let mapped = (data || []).map(doc => {
+        // Документ в наличии, если хоть один его товар есть на складе/витрине текущего магазина
         const inStock = doc.document_items && doc.document_items.length > 0 
           ? doc.document_items.some(i => branchStockMap[i.normalized_name] === true)
-          : true;
+          : true; // Медиа и пустые документы считаем "в наличии"
 
+        // Ищем статус строго для выбранного магазина (иначе 'new')
         const bStatusObj = (doc.branch_statuses || []).find(bs => bs.branch === activeBranch) || {};
         let s = bStatusObj.status || 'new';
 
@@ -431,13 +381,29 @@ export default function App() {
           ...doc, 
           computedStatus: s, 
           branchInStock: inStock,
-          branchProcessedBy: bStatusObj.processed_by,
+          branchProcessedBy: bStatusObj.processed_by?.full_name,
           branchProcessedAt: bStatusObj.processed_at,
-          branchCompletedBy: bStatusObj.completed_by,
+          branchCompletedBy: bStatusObj.completed_by?.full_name,
           branchCompletedAt: bStatusObj.completed_at
         };
       });
 
+      // Пересчитываем бейджи на основе статусов филиала
+      const counts = { new: 0, completed: 0, gifts: 0, archive: 0 };
+      mapped.forEach(doc => {
+        if (doc.doc_type === 'gift' || doc.doc_type === 'media') {
+          if (doc.computedStatus === 'new' && (doc.doc_type === 'media' || doc.branchInStock)) counts.gifts++;
+          else if (doc.computedStatus === 'completed') counts.completed++;
+          else if (doc.computedStatus === 'archive') counts.archive++;
+        } else {
+          if (doc.computedStatus === 'new' && doc.branchInStock) counts.new++;
+          else if (doc.computedStatus === 'completed') counts.completed++;
+          else if (doc.computedStatus === 'archive') counts.archive++;
+        }
+      });
+      setTabCounts(counts);
+
+      // Фильтруем документы для текущей открытой вкладки
       let finalDocs = [];
       if (currentTab === 'new') {
         if (promoSubTab === 'new') {
@@ -462,7 +428,7 @@ export default function App() {
 
       setDocuments(finalDocs);
     } catch (err) { 
-      console.error("Фатальная ошибка загрузки документов:", err.message); 
+      console.error("Ошибка загрузки документов:", err.message); 
     } finally { 
       setLoading(false); 
     }
@@ -512,36 +478,42 @@ export default function App() {
     } catch (err) { console.error("Ошибка локальной подгрузки остатков:", err.message); }
   };
 
+  // ИСПРАВЛЕНО: Безопасное сохранение статусов через предварительную проверку наличия записи
   const executeStatusChange = async () => {
     const { type, docId } = confirmModal;
     const activeBranch = getActiveBranch();
     
-    const updatePayload = {};
-    if (type === 'process') {
-      updatePayload.status = 'processed';
-      updatePayload.processed_by_iin = user.iin;
-      updatePayload.processed_at = new Date().toISOString();
-    } else if (type === 'archive') {
-      updatePayload.status = 'completed';
-      updatePayload.completed_by_iin = user.iin;
-      updatePayload.completed_at = new Date().toISOString();
-    }
-    
     try {
-      // Сохраняем в таблицу branch_statuses через Upsert 
+      // 1. Узнаем, существует ли уже запись статуса для этого филиала
+      const { data: existing } = await supabase
+        .from('document_branch_statuses')
+        .select('*')
+        .eq('document_id', docId)
+        .eq('branch', activeBranch)
+        .maybeSingle();
+
+      // 2. Формируем тело обновления
+      const payload = existing ? { ...existing } : { document_id: docId, branch: activeBranch };
+      
+      if (type === 'process') {
+        payload.status = 'processed';
+        payload.processed_by_iin = user.iin;
+        payload.processed_at = new Date().toISOString();
+      } else if (type === 'archive') {
+        payload.status = 'completed';
+        payload.completed_by_iin = user.iin;
+        payload.completed_at = new Date().toISOString();
+      }
+      
+      // 3. Сохраняем в БД
       const { error } = await supabase
         .from('document_branch_statuses')
-        .upsert({
-          document_id: docId,
-          branch: activeBranch,
-          ...updatePayload
-        }, { onConflict: 'document_id,branch' });
+        .upsert(payload, { onConflict: 'document_id,branch' });
 
       if (error) throw error;
       setConfirmModal({ show: false, type: '', docId: null });
       if (selectedDoc) setSelectedDoc(null);
       fetchDocuments();
-      updateTabCounters(); // Обновляем и бейджи
     } catch (err) { alert(err.message); }
   };
 
@@ -841,11 +813,11 @@ export default function App() {
                       <span className="text-amber-600 dark:text-amber-400 font-bold bg-amber-50 dark:bg-amber-950/30 px-1 rounded transition-colors duration-300">Нет в наличии</span>
                     ) : (
                       <div className="text-slate-400 dark:text-slate-500 flex flex-wrap gap-x-2">
-                        {doc.branchProcessedBy?.full_name && (
-                          <span>Оформил: {doc.branchProcessedBy.full_name} {doc.branchProcessedAt && `— ${formatCardDate(doc.branchProcessedAt)}`}</span>
+                        {doc.branchProcessedBy && (
+                          <span>Оформил: {doc.branchProcessedBy} {doc.branchProcessedAt && `— ${formatCardDate(doc.branchProcessedAt)}`}</span>
                         )}
-                        {doc.branchCompletedBy?.full_name && (
-                          <span>Закрыл: {doc.branchCompletedBy.full_name} {doc.branchCompletedAt && `— ${formatCardDate(doc.branchCompletedAt)}`}</span>
+                        {doc.branchCompletedBy && (
+                          <span>Закрыл: {doc.branchCompletedBy} {doc.branchCompletedAt && `— ${formatCardDate(doc.branchCompletedAt)}`}</span>
                         )}
                       </div>
                     )}
