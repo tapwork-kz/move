@@ -24,7 +24,7 @@ export default function App() {
   const [authError, setAuthError] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
 
-  const [selectedBranch, setSelectedBranch] = useState('');
+  const [selectedBranch, setSelectedBranch] = useState('rozybakieva');
   const [currentTab, setCurrentTab] = useState('new');
   const [selectedDept, setSelectedDept] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -54,8 +54,9 @@ export default function App() {
   const [giftsSubTab, setGiftsSubTab] = useState('new'); 
   const [touchStart, setTouchStart] = useState(null);
   
-  const departments = ["ALL", "#Цифра 🟠", "#ЧТ 🟢", "#МБТ 🟡", "#КБТ 🔵", "#Другое"];
-  // Добавляем список доступных филиалов
+  // ИСПРАВЛЕНО: Убрано дублирующее значение "ALL" из списка отделов
+  const departments = ["#Цифра 🟠", "#ЧТ 🟢", "#МБТ 🟡", "#КБТ 🔵", "#Другое"];
+  
   const branches = [
     { id: 'rozybakieva', name: 'Алматы, Розыбакиева 275а' },
     { id: 'mart_village', name: 'Алматы, Mart Village' }
@@ -75,6 +76,7 @@ export default function App() {
     };
   }, [selectedDoc]);
 
+  // ИСПРАВЛЕНО: Точный поиск по ведомости с учетом выбранного филиала
   useEffect(() => {
     if (currentTab !== 'statement') return;
     if (!statementQuery.trim()) {
@@ -85,7 +87,6 @@ export default function App() {
     const delayDebounce = setTimeout(async () => {
       setStatementLoading(true);
       try {
-        // ИСПРАВЛЕНО: Определяем актуальный филиал (если branch = 'ALL', берём из выбора selectedBranch)
         const targetBranch = user?.branch === 'ALL' ? (selectedBranch || 'rozybakieva') : (user?.branch || 'rozybakieva');
         const { data, error } = await supabase.rpc('search_inventory_with_prices', {
           search_query: statementQuery.trim(),
@@ -101,7 +102,7 @@ export default function App() {
     }, 400);
 
     return () => clearTimeout(delayDebounce);
-  }, [statementQuery, currentTab, user]);
+  }, [statementQuery, currentTab, user, selectedBranch]);
 
   const openPriceHistory = async (item) => {
     setActiveItemName(item.raw_name);
@@ -186,7 +187,6 @@ export default function App() {
         if (parsed && parsed.iin) { 
           setUser(parsed);
           setSelectedDept(parsed.role === 'Директор' || parsed.role === 'Супервайзер' || parsed.role === 'Инфо-консультант' ? '' : parsed.dept);
-          // ИСПРАВЛЕНО: Устанавливаем выбранный филиал из базы данных
           setSelectedBranch(parsed.branch === 'ALL' ? 'rozybakieva' : (parsed.branch || 'rozybakieva'));
           return;
         }
@@ -211,24 +211,25 @@ export default function App() {
     };
     window.addEventListener('focus', handleWindowFocus);
     return () => window.removeEventListener('focus', handleWindowFocus);
-  }, [currentTab, selectedDept, searchQuery, dateFilter, monthFilter, promoSubTab, giftsSubTab, user]);
+  }, [currentTab, selectedDept, searchQuery, dateFilter, monthFilter, promoSubTab, giftsSubTab, user, selectedBranch]);
 
   const hasStock = (doc) => {
     if (!doc?.document_items || doc.document_items.length === 0) return true;
     return doc.document_items.some(item => item.is_in_stock === true);
   };
 
+  // ИСПРАВЛЕНО: Безопасное вычисление бейджей количества над вкладками
   const updateTabCounters = async () => {
     if (!user) return;
     try {
       let query = supabase.from('documents').select('status, dept, doc_type, period_end, document_items(is_in_stock)');
-      const userDepts = Array.isArray(user.dept) ? user.dept : [user.dept];
+      const userDepts = Array.isArray(user.dept) ? user.dept : (user.dept ? [user.dept] : []);
       const hasAllAccess = user.role === 'Директор' || user.role === 'Супервайзер' || user.role === 'Инфо-консультант' || userDepts.includes('ALL');
 
-      if (!hasAllAccess) {
+      if (!hasAllAccess && userDepts.length > 0) {
         const deptConditions = userDepts.map(d => `dept.ilike.*${d}*`).concat(['dept.ilike.*Другое*']);
         query = query.or(deptConditions.join(','));
-      } else if (selectedDept && selectedDept !== 'ALL') {
+      } else if (selectedDept) {
         query = query.eq('dept', selectedDept);
       }
 
@@ -268,7 +269,7 @@ export default function App() {
         });
         setTabCounts(counts);
       }
-    } catch (err) { console.error(err); }
+    } catch (err) { console.error("Ошибка обновления счетчиков:", err); }
   };
 
   const handleTouchStart = (e) => {
@@ -305,7 +306,6 @@ export default function App() {
       if (data.login_status !== true) { setAuthError('Вход запрещен.'); return; }
       setUser(data);
       setSelectedDept(data.role === 'Директор' || data.role === 'Супервайзер' || data.role === 'Инфо-консультант' ? '' : data.dept);
-      // ИСПРАВЛЕНО: Устанавливаем стартовый филиал авторизованного пользователя
       setSelectedBranch(data.branch === 'ALL' ? 'rozybakieva' : (data.branch || 'rozybakieva'));
       localStorage.setItem('promo_app_user', JSON.stringify(data));
     } catch (err) { setAuthError('Ошибка: ' + err.message); } finally { setAuthLoading(false); }
@@ -327,13 +327,13 @@ export default function App() {
         document_items(price, is_in_stock, change_type, raw_name)
       `);
 
-      const userDepts = Array.isArray(user.dept) ? user.dept : [user.dept];
+      const userDepts = Array.isArray(user.dept) ? user.dept : (user.dept ? [user.dept] : []);
       const hasAllAccess = user.role === 'Директор' || user.role === 'Супервайзер' || user.role === 'Инфо-консультант' || userDepts.includes('ALL');
 
-      if (!hasAllAccess) {
+      if (!hasAllAccess && userDepts.length > 0) {
         const deptConditions = userDepts.map(d => `dept.ilike.*${d}*`).concat(['dept.ilike.*Другое*']);
         query = query.or(deptConditions.join(','));
-      } else if (selectedDept && selectedDept !== 'ALL') {
+      } else if (selectedDept) {
         query = query.eq('dept', selectedDept);
       }
 
@@ -413,7 +413,6 @@ export default function App() {
         const namesToFetch = itemsData.map(i => i.normalized_name).filter(Boolean);
         
         if (namesToFetch.length > 0) {
-          // ИСПРАВЛЕНО: Если у пользователя branch = 'ALL', берём выбранный филиал, иначе его фиксированный
           const targetBranch = user?.branch === 'ALL' ? (selectedBranch || 'rozybakieva') : (user?.branch || 'rozybakieva');
           const { data: invData, error: invError } = await supabase
             .from('inventory')
@@ -566,7 +565,7 @@ export default function App() {
           </div>
           
           <div className="flex items-center gap-1.5">
-            {/* ИСПРАВЛЕНО: Выбор филиала доступен ИСКЛЮЧИТЕЛЬНО пользователям со статусом branch === 'ALL' */}
+            {/* Выбор филиала только при user.branch === 'ALL' */}
             {user?.branch === 'ALL' && (
               <div className="flex items-center gap-1 bg-blue-50 dark:bg-slate-800 border border-blue-200 dark:border-slate-700 px-1.5 py-0.5 rounded-lg text-[10px]">
                 <select 
@@ -688,7 +687,7 @@ export default function App() {
         </div>
       </div>
 
-      {/* ================= ЛЕНТА КАРТОЧЕК ДОКУМЕНТОВ (СКРОЛЛИТСЯ) ================= */}
+      {/* ================= ЛЕНТА КАРТОЧЕК ДОКУМЕНТОВ ================= */}
       <main 
         key={currentTab} 
         className="p-4 flex-1 overflow-y-auto overscroll-y-contain max-w-3xl mx-auto w-full animate-fade-in"
