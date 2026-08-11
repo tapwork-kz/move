@@ -306,15 +306,15 @@ export default function App() {
         const inStockInBranch = checkDocStockInBranch(doc);
         if (doc.doc_type !== 'media' && !inStockInBranch) return;
 
-        // Берем статус филиала из дочерней таблицы
+        // Достаем статус филиала из дочерней таблицы
         const bStatusObj = (doc.branch_statuses || []).find(bs => bs.branch === activeBranch) || {};
         let computedStatus = bStatusObj.status || 'new';
 
         const isCorrection = doc.file_name ? doc.file_name.toLowerCase().includes('корректировк') : false;
 
         if (doc.period_end && doc.period_end < todayStr && !isCorrection) {
-          if (doc.status === 'new' && !inStockInBranch) computedStatus = 'archive';
-          else if (doc.status === 'processed') computedStatus = 'completed';
+          if (computedStatus === 'new' && !inStockInBranch) computedStatus = 'archive';
+          else if (computedStatus === 'processed') computedStatus = 'completed';
         }
 
         if (doc.doc_type === 'gift' || doc.doc_type === 'media') {
@@ -389,11 +389,11 @@ export default function App() {
   const fetchDocuments = async () => {
     if (!user) return;
     setLoading(true);
-    setDocuments([]); // Моментальная очистка перед запрузом свежих данных
+    setDocuments([]); // Мгновенная очистка во избежание «мигания»
     try {
       const activeBranch = getActiveBranch();
 
-      // Запрашиваем документы со статусами ИМЕННО текущего филиала и явными внешними ключами
+      // ИСПРАВЛЕНО: Читаем статусы филиала из document_branch_statuses с явным именем FK
       let query = supabase.from('documents').select(`
         *,
         branch_statuses:document_branch_statuses(
@@ -444,7 +444,7 @@ export default function App() {
       const todayStr = new Date().toISOString().split('T')[0];
 
       let mapped = (data || []).map(doc => {
-        // Проверка наличия товаров именно в активном филиале
+        // Проверка наличия остатков именно на складе/витрине активного филиала
         const inStock = doc.document_items && doc.document_items.length > 0 
           ? doc.document_items.some(i => branchStockMap[i.normalized_name] === true)
           : true;
@@ -560,7 +560,7 @@ export default function App() {
     }
     
     try {
-      // Сохраняем статус СТРОГО для текущего подразделения
+      // Записываем статус СТРОГО для выбранного подразделения
       const { error } = await supabase
         .from('document_branch_statuses')
         .upsert({
