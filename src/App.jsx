@@ -78,7 +78,7 @@ export default function App() {
     };
   }, [selectedDoc]);
 
-  // ПОИСК ПО ВЕДОМОСТИ
+  // Поиск по ведомости
   useEffect(() => {
     if (currentTab !== 'statement') return;
     const trimmed = statementQuery.trim();
@@ -119,7 +119,7 @@ export default function App() {
     return () => clearTimeout(delayDebounce);
   }, [statementQuery, currentTab, user, selectedBranch]);
 
-  // ПОДГРУЗКА ИСТОРИИ ЦЕН
+  // Загрузка истории цен
   const openPriceHistory = async (item) => {
     setActiveItemName(item.raw_name);
     setSelectedHistoryItem(item);
@@ -137,8 +137,7 @@ export default function App() {
               branch, status, processed_at, completed_at,
               processed_by:users!fk_branch_status_processed_iin(full_name),
               completed_by:users!fk_branch_status_completed_iin(full_name)
-            ),
-            document_items(price, is_in_stock, change_type, raw_name)
+            )
           )
         `)
         .eq('normalized_name', item.normalized_name)
@@ -147,7 +146,7 @@ export default function App() {
       if (error) throw error;
       setPriceHistory(data || []);
     } catch (err) {
-      console.error("Ошибка истории цен:", err.message);
+      console.error("Ошибка загрузки истории цен:", err.message);
     } finally {
       setHistoryLoading(false);
     }
@@ -216,12 +215,11 @@ export default function App() {
     return () => window.removeEventListener('focus', handleWindowFocus);
   }, [currentTab, selectedDept, searchQuery, dateFilter, monthFilter, promoSubTab, giftsSubTab, user, selectedBranch]);
 
-  // КАРТА НАЛИЧИЯ (Поиск реальных остатков на выбранном складе)
+  // Проверка наличия товаров документа конкретно в текущем филиале
   const getBranchInventoryMap = async (activeBranch, docs) => {
     const names = new Set();
     docs.forEach(doc => {
       if (doc.document_items) {
-        // ИСПРАВЛЕНО: Чтение normalized_name для последующего поиска
         doc.document_items.forEach(i => { if (i.normalized_name) names.add(i.normalized_name); });
       }
     });
@@ -244,17 +242,17 @@ export default function App() {
     return map;
   };
 
-  // ОБНОВЛЕНИЕ СЧЕТЧИКОВ С УЧЕТОМ СТАТУСОВ ФИЛИАЛА
+  // Перерасчет счетчиков вкладок
   const updateTabCounters = async () => {
     if (!user) return;
     try {
       const activeBranch = getActiveBranch();
 
-      // ИСПРАВЛЕНО: Запрашиваем normalized_name, иначе getBranchInventoryMap слепнет
+      // МЯГКИЙ JOIN: Без !inner. Если статуса филиала нет, вернет массив []
       let query = supabase.from('documents').select(`
         id, dept, doc_type, period_end, file_name,
         branch_statuses:document_branch_statuses(status, branch),
-        document_items(normalized_name, is_in_stock)
+        document_items(normalized_name)
       `);
 
       const userDepts = Array.isArray(user.dept) ? user.dept : (user.dept ? [user.dept] : []);
@@ -267,8 +265,8 @@ export default function App() {
         query = query.eq('dept', selectedDept);
       }
 
-      const { data: docsData } = await query;
-      if (!docsData) return;
+      const { data: docsData, error } = await query;
+      if (error || !docsData) return;
 
       const branchStockMap = await getBranchInventoryMap(activeBranch, docsData);
 
@@ -284,6 +282,7 @@ export default function App() {
         const inStock = checkInBranch(doc);
         if (doc.doc_type !== 'media' && !inStock) return;
 
+        // Фильтруем массив статусов под текущий филиал. Если пуст — считаем 'new'
         const bStatusObj = (doc.branch_statuses || []).find(bs => bs.branch === activeBranch) || {};
         let computedStatus = bStatusObj.status || 'new';
 
@@ -353,16 +352,15 @@ export default function App() {
     localStorage.removeItem('promo_app_user');
   };
 
-  // ОСНОВНАЯ ЗАГРУЗКА СПИСКОВ С ВНЕШНИМИ КЛЮЧАМИ
+  // ОСНОВНАЯ ЗАГРУЗКА СПИСКА
   const fetchDocuments = async () => {
     if (!user) return;
     setLoading(true);
-    setDocuments([]); // Мгновенная очистка во избежание «мигания»
+    setDocuments([]); // Очистка перед загрузкой уберет "мигание"
     try {
       const activeBranch = getActiveBranch();
 
-      // ИСПРАВЛЕНО: Явные ключи fk_branch_status_processed_iin для избежания конфликтов JOIN. 
-      // ИСПРАВЛЕНО 2: Обязательно добавлен normalized_name
+      // МЯГКИЙ JOIN с явными внешними ключами. Гарантированно отдаст документы!
       let query = supabase.from('documents').select(`
         *,
         branch_statuses:document_branch_statuses(
@@ -370,7 +368,7 @@ export default function App() {
           processed_by:users!fk_branch_status_processed_iin(full_name),
           completed_by:users!fk_branch_status_completed_iin(full_name)
         ),
-        document_items(price, is_in_stock, change_type, raw_name, normalized_name)
+        document_items(price, change_type, raw_name, normalized_name)
       `);
 
       const userDepts = Array.isArray(user.dept) ? user.dept : (user.dept ? [user.dept] : []);
@@ -406,7 +404,10 @@ export default function App() {
       }
 
       const { data, error } = await query.order('created_at', { ascending: false });
-      if (error) throw error;
+      if (error) {
+        console.error("SUPABASE ERROR:", error);
+        throw error;
+      }
 
       const branchStockMap = await getBranchInventoryMap(activeBranch, data || []);
       const todayStr = new Date().toISOString().split('T')[0];
@@ -460,7 +461,11 @@ export default function App() {
       }
 
       setDocuments(finalDocs);
-    } catch (err) { console.error(err.message); } finally { setLoading(false); }
+    } catch (err) { 
+      console.error("Фатальная ошибка загрузки документов:", err.message); 
+    } finally { 
+      setLoading(false); 
+    }
   };
 
   const openDocDetails = async (doc) => {
@@ -496,8 +501,7 @@ export default function App() {
             const enrichedItems = itemsData.map(item => ({
               ...item,
               stock_wh: invMap[item.normalized_name]?.wh ?? 0,
-              stock_sc: invMap[item.normalized_name]?.sc ?? 0,
-              is_in_stock: (invMap[item.normalized_name]?.wh > 0 || invMap[item.normalized_name]?.sc > 0)
+              stock_sc: invMap[item.normalized_name]?.sc ?? 0
             }));
             setDocItems(enrichedItems);
             return;
@@ -524,6 +528,7 @@ export default function App() {
     }
     
     try {
+      // Сохраняем в таблицу branch_statuses через Upsert 
       const { error } = await supabase
         .from('document_branch_statuses')
         .upsert({
@@ -536,6 +541,7 @@ export default function App() {
       setConfirmModal({ show: false, type: '', docId: null });
       if (selectedDoc) setSelectedDoc(null);
       fetchDocuments();
+      updateTabCounters(); // Обновляем и бейджи
     } catch (err) { alert(err.message); }
   };
 
@@ -1075,8 +1081,7 @@ export default function App() {
                   {priceHistory.map((hist, idx) => {
                     const doc = hist.documents;
                     if (!doc) return null;
-                    const activeBranch = getActiveBranch();
-                    const bStatusObj = (doc.branch_statuses || []).find(bs => bs.branch === activeBranch) || {};
+                    const bStatusObj = doc.branch_statuses && doc.branch_statuses[0] ? doc.branch_statuses[0] : {};
                     return (
                       <div
                         key={idx}
