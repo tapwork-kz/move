@@ -55,6 +55,7 @@ export default function App() {
   const [touchStart, setTouchStart] = useState(null);
   
   const departments = ["#Цифра 🟠", "#ЧТ 🟢", "#МБТ 🟡", "#КБТ 🔵", "#Другое"];
+  
   const branches = [
     { id: 'rozybakieva', name: 'Алматы, Розыбакиева 275а' },
     { id: 'mart_village', name: 'Алматы, Mart Village' }
@@ -91,15 +92,24 @@ export default function App() {
       setStatementLoading(true);
       try {
         const activeBranch = getActiveBranch();
-        const { data, error } = await supabase
-          .from('inventory')
-          .select('id, raw_name, normalized_name, stock_warehouse, stock_showcase')
-          .ilike('raw_name', `%${trimmed}%`)
-          .eq('branch', activeBranch)
-          .limit(100);
+        const { data, error } = await supabase.rpc('search_inventory_with_prices', {
+          search_query: trimmed,
+          user_branch: activeBranch
+        });
 
-        if (error) throw error;
-        setStatementItems((data || []).map(item => ({ ...item, latest_price: '—' })));
+        if (error) {
+          console.error("RPC Error:", error);
+          const { data: fallbackData } = await supabase
+            .from('inventory')
+            .select('id, raw_name, normalized_name, stock_warehouse, stock_showcase')
+            .ilike('raw_name', `%${trimmed}%`)
+            .eq('branch', activeBranch)
+            .limit(100);
+
+          setStatementItems((fallbackData || []).map(item => ({ ...item, latest_price: '—' })));
+        } else {
+          setStatementItems(data || []);
+        }
       } catch (err) {
         console.error("Ошибка поиска по ведомости:", err.message);
       } finally {
@@ -121,7 +131,15 @@ export default function App() {
         .select(`
           price, 
           created_at, 
-          documents:document_id(*)
+          documents:document_id(
+            *,
+            branch_statuses:document_branch_statuses(
+              branch, status, processed_at, completed_at,
+              processed_by:users!processed_by_iin(full_name),
+              completed_by:users!completed_by_iin(full_name)
+            ),
+            document_items(price, is_in_stock, change_type, raw_name)
+          )
         `)
         .eq('normalized_name', item.normalized_name)
         .order('created_at', { ascending: false });
@@ -129,9 +147,40 @@ export default function App() {
       if (error) throw error;
       setPriceHistory(data || []);
     } catch (err) {
-      console.error("Ошибка истории цен:", err.message);
+      console.error("Ошибка загрузки истории цен:", err.message);
     } finally {
       setHistoryLoading(false);
+    }
+  };
+
+  const VAPID_PUBLIC_KEY = "BFWtU5jMprIvBQq2cAW4ZsDr7-3zGEfhyhR0efaGInmFHx5mUtaxD0OVdqBL06CDco3MdtKPmeIegsTHo1kUxco";
+
+  function urlBase64ToUint8Array(base64String) {
+    const padding = '='.repeat((4 - base64String.length % 4) % 4);
+    const base64 = (base64String + padding).replace(/\-/g, '+').replace(/_/g, '/');
+    const rawData = window.atob(base64);
+    const outputArray = new Uint8Array(rawData.length);
+    for (let i = 0; i < rawData.length; ++i) {
+      outputArray[i] = rawData.charCodeAt(i);
+    }
+    return outputArray;
+  }
+
+  const initPushNotifications = async (currentUser) => {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') return;
+      const registration = await navigator.serviceWorker.register('sw.js');
+      let subscription = await registration.pushManager.getSubscription();
+      if (subscription) await subscription.unsubscribe();
+      subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+      });
+      await supabase.from('users').update({ push_sub: subscription.toJSON() }).eq('iin', currentUser.iin);
+    } catch (err) {
+      console.error('Ошибка пушей:', err.message);
     }
   };
 
@@ -154,6 +203,8 @@ export default function App() {
 
   useEffect(() => {
     if (!user) return;
+    initPushNotifications(user);
+    setDocuments([]); 
     fetchDocuments();
 
     const handleWindowFocus = () => fetchDocuments();
@@ -161,17 +212,93 @@ export default function App() {
     return () => window.removeEventListener('focus', handleWindowFocus);
   }, [currentTab, selectedDept, searchQuery, dateFilter, monthFilter, promoSubTab, giftsSubTab, user, selectedBranch]);
 
-  // Чистый безопасный запрос документов с филиальными статусами
+  // Карта наличия товаров филиала
+  const getBranchInventoryMap = async (activeBranch, docs) => {
+    const names = new Set();
+    docs.forEach(doc => {
+      if (doc.document_items) {
+        doc.document_items.forEach(i => { if (i.normalized_name) names.add(i.normalized_name); });
+      }
+    });
+    if (names.size === 0) return {};
+
+    const { data } = await supabase
+      .from('inventory')
+      .select('normalized_name, stock_warehouse, stock_showcase')
+      .in('normalized_name', Array.from(names))
+      .eq('branch', activeBranch);
+
+    const map = {};
+    if (data) {
+      data.forEach(inv => {
+        if ((inv.stock_warehouse || 0) + (inv.stock_showcase || 0) > 0) {
+          map[inv.normalized_name] = true;
+        }
+      });
+    }
+    return map;
+  };
+
+  const handleTouchStart = (e) => {
+    if (selectedDoc) return;
+    setTouchStart(e.targetTouches[0].clientX);
+  };
+  
+  const handleTouchEnd = (e) => {
+    if (selectedDoc || !touchStart) return;
+    const touchEnd = e.changedTouches[0].clientX;
+    const diff = touchStart - touchEnd;
+    const currentIdx = tabOrder.indexOf(currentTab);
+
+    if (diff > 70 && currentIdx < tabOrder.length - 1) {
+      setCurrentTab(tabOrder[currentIdx + 1]);
+      setPromoSubTab('new');
+      setGiftsSubTab('new');
+    } else if (diff < -70 && currentIdx > 0) {
+      setCurrentTab(tabOrder[currentIdx - 1]);
+      setPromoSubTab('new');
+      setGiftsSubTab('new');
+    }
+    setTouchStart(null);
+  };
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setAuthError('');
+    setAuthLoading(true);
+    try {
+      const { data, error } = await supabase.from('users').select('*').eq('iin', authForm.iin).eq('password', authForm.password).maybeSingle();
+      if (error) throw error;
+      if (!data) { setAuthError('Неверный ИИН или пароль.'); return; }
+      if (data.login_status !== true) { setAuthError('Вход запрещен.'); return; }
+      setUser(data);
+      setSelectedDept(data.role === 'Директор' || data.role === 'Супервайзер' || data.role === 'Инфо-консультант' ? '' : data.dept);
+      setSelectedBranch(data.branch === 'ALL' ? 'rozybakieva' : (data.branch || 'rozybakieva'));
+      localStorage.setItem('promo_app_user', JSON.stringify(data));
+    } catch (err) { setAuthError('Ошибка: ' + err.message); } finally { setAuthLoading(false); }
+  };
+
+  const handleLogout = () => {
+    setUser(null);
+    localStorage.removeItem('promo_app_user');
+  };
+
+  // ИСПРАВЛЕННАЯ ЗАГРУЗКА: Честная изолированная загрузка документов текущего филиала
   const fetchDocuments = async () => {
     if (!user) return;
     setLoading(true);
+    setDocuments([]); // Мгновенная очистка во избежание «мигания» чужих акций
     try {
       const activeBranch = getActiveBranch();
 
-      // 1. Получаем документы
       let query = supabase.from('documents').select(`
         *,
-        document_items(normalized_name, price, change_type, is_in_stock)
+        branch_statuses:document_branch_statuses(
+          status, branch, processed_at, completed_at,
+          processed_by:users!processed_by_iin(full_name),
+          completed_by:users!completed_by_iin(full_name)
+        ),
+        document_items(price, is_in_stock, change_type, raw_name, normalized_name)
       `);
 
       const userDepts = Array.isArray(user.dept) ? user.dept : (user.dept ? [user.dept] : []);
@@ -206,64 +333,19 @@ export default function App() {
         }
       }
 
-      const { data: rawDocs, error: docsError } = await query.order('created_at', { ascending: false });
-      if (docsError) throw docsError;
+      const { data, error } = await query.order('created_at', { ascending: false });
+      if (error) throw error;
 
-      const docIds = (rawDocs || []).map(d => d.id);
-      
-      // 2. Получаем автономные статусы филиала из document_branch_statuses
-      let branchStatusMap = {};
-      if (docIds.length > 0) {
-        const { data: bStatuses } = await supabase
-          .from('document_branch_statuses')
-          .select('document_id, status, processed_at, completed_at, processed_by_iin, completed_by_iin')
-          .in('document_id', docIds)
-          .eq('branch', activeBranch);
-
-        if (bStatuses) {
-          bStatuses.forEach(bs => {
-            branchStatusMap[bs.document_id] = bs;
-          });
-        }
-      }
-
-      // 3. Получаем остатки активного магазина из таблицы inventory
-      const namesSet = new Set();
-      (rawDocs || []).forEach(d => {
-        if (d.document_items) {
-          d.document_items.forEach(item => {
-            if (item.normalized_name) namesSet.add(item.normalized_name);
-          });
-        }
-      });
-
-      let storeStockMap = {};
-      if (namesSet.size > 0) {
-        const { data: invData } = await supabase
-          .from('inventory')
-          .select('normalized_name, stock_warehouse, stock_showcase')
-          .in('normalized_name', Array.from(namesSet))
-          .eq('branch', activeBranch);
-
-        if (invData) {
-          invData.forEach(inv => {
-            if ((inv.stock_warehouse || 0) + (inv.stock_showcase || 0) > 0) {
-              storeStockMap[inv.normalized_name] = true;
-            }
-          });
-        }
-      }
-
+      const branchStockMap = await getBranchInventoryMap(activeBranch, data || []);
       const todayStr = new Date().toISOString().split('T')[0];
 
-      let mapped = (rawDocs || []).map(doc => {
-        const inStock = doc.doc_type === 'media' ? true : (
-          doc.document_items && doc.document_items.length > 0
-            ? doc.document_items.some(i => storeStockMap[i.normalized_name] === true)
-            : true
-        );
+      let mapped = (data || []).map(doc => {
+        const inStock = doc.document_items && doc.document_items.length > 0 
+          ? doc.document_items.some(i => branchStockMap[i.normalized_name] === true)
+          : true;
 
-        const bStatusObj = branchStatusMap[doc.id] || {};
+        // Фильтруем статус филиала строго по activeBranch
+        const bStatusObj = (doc.branch_statuses || []).find(bs => bs.branch === activeBranch) || {};
         let s = bStatusObj.status || 'new';
 
         const isCorrection = doc.file_name ? doc.file_name.toLowerCase().includes('корректировк') : false;
@@ -276,11 +358,15 @@ export default function App() {
         return { 
           ...doc, 
           computedStatus: s, 
-          branchInStock: inStock
+          branchInStock: inStock,
+          branchProcessedBy: bStatusObj.processed_by,
+          branchProcessedAt: bStatusObj.processed_at,
+          branchCompletedBy: bStatusObj.completed_by,
+          branchCompletedAt: bStatusObj.completed_at
         };
       });
 
-      // Считаем бейджи
+      // Пересчет бейджей
       const counts = { new: 0, completed: 0, gifts: 0, archive: 0 };
       mapped.forEach(doc => {
         if (doc.doc_type === 'gift' || doc.doc_type === 'media') {
@@ -295,7 +381,6 @@ export default function App() {
       });
       setTabCounts(counts);
 
-      // Фильтрация карточек для текущей вкладки
       let finalDocs = [];
       if (currentTab === 'new') {
         if (promoSubTab === 'new') {
@@ -319,11 +404,7 @@ export default function App() {
       }
 
       setDocuments(finalDocs);
-    } catch (err) { 
-      console.error("Ошибка загрузки документов:", err.message); 
-    } finally { 
-      setLoading(false); 
-    }
+    } catch (err) { console.error(err.message); } finally { setLoading(false); }
   };
 
   const openDocDetails = async (doc) => {
@@ -332,11 +413,7 @@ export default function App() {
     setModalTab('in_stock');
     setItemSearch('');
     try {
-      const { data: itemsData, error: itemsError } = await supabase
-        .from('document_items')
-        .select('*')
-        .eq('document_id', doc.id);
-      
+      const { data: itemsData, error: itemsError } = await supabase.from('document_items').select('*').eq('document_id', doc.id);
       if (itemsError) throw itemsError;
 
       if (itemsData && itemsData.length > 0) {
@@ -372,10 +449,10 @@ export default function App() {
         }
       }
       setDocItems(itemsData || []);
-    } catch (err) { console.error("Ошибка подгрузки деталей:", err.message); }
+    } catch (err) { console.error("Ошибка локальной подгрузки остатков:", err.message); }
   };
 
-  // Оформление акции в филиальном статусе (document_branch_statuses)
+  // Оформление акции в филиальном статусе через UPSERT
   const executeStatusChange = async () => {
     const { type, docId } = confirmModal;
     const activeBranch = getActiveBranch();
@@ -486,7 +563,11 @@ export default function App() {
   }
 
   return (
-    <div className="w-full max-w-full overflow-hidden h-[100dvh] max-h-[100dvh] bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 flex flex-col select-none">
+    <div 
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+      className="w-full max-w-full overflow-hidden h-[100dvh] max-h-[100dvh] bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 flex flex-col select-none"
+    >
       <div className="w-full shrink-0 relative z-30 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-xs transition-colors duration-300">
         <header className="px-4 py-2.5 flex items-center justify-between gap-4 max-w-3xl mx-auto w-full">
           <div className="flex items-center gap-2">
@@ -699,8 +780,11 @@ export default function App() {
                       <span className="text-amber-600 dark:text-amber-400 font-bold bg-amber-50 dark:bg-amber-950/30 px-1 rounded transition-colors duration-300">Нет в наличии</span>
                     ) : (
                       <div className="text-slate-400 dark:text-slate-500 flex flex-wrap gap-x-2">
-                        {doc.processed_at && (
-                          <span>Оформил: Менеджер {formatCardDate(doc.processed_at)}</span>
+                        {doc.branchProcessedBy?.full_name && (
+                          <span>Оформил: {doc.branchProcessedBy.full_name} {doc.branchProcessedAt && `— ${formatCardDate(doc.branchProcessedAt)}`}</span>
+                        )}
+                        {doc.branchCompletedBy?.full_name && (
+                          <span>Закрыл: {doc.branchCompletedBy.full_name} {doc.branchCompletedAt && `— ${formatCardDate(doc.branchCompletedAt)}`}</span>
                         )}
                       </div>
                     )}
@@ -936,6 +1020,8 @@ export default function App() {
                   {priceHistory.map((hist, idx) => {
                     const doc = hist.documents;
                     if (!doc) return null;
+                    const activeBranch = getActiveBranch();
+                    const bStatusObj = (doc.branch_statuses || []).find(bs => bs.branch === activeBranch) || {};
                     return (
                       <div
                         key={idx}
@@ -959,6 +1045,17 @@ export default function App() {
                             <span className="text-[9px] text-slate-400 font-medium">{doc.dept}</span>
                           </div>
                           <h3 className="font-normal text-slate-700 dark:text-slate-200 text-xs truncate">{doc.file_name}</h3>
+                          
+                          <div className="flex flex-wrap gap-x-2 text-[9px] pt-0.5">
+                            <div className="text-slate-400 dark:text-slate-500 flex flex-wrap gap-x-2">
+                              {bStatusObj.processed_by?.full_name && (
+                                <span>Оформил: {bStatusObj.processed_by.full_name} {bStatusObj.processed_at && `— ${formatCardDate(bStatusObj.processed_at)}`}</span>
+                              )}
+                              {bStatusObj.completed_by?.full_name && (
+                                <span>Закрыл: {bStatusObj.completed_by.full_name} {bStatusObj.completed_at && `— ${formatCardDate(bStatusObj.completed_at)}`}</span>
+                              )}
+                            </div>
+                          </div>
                         </div>
 
                         <div className="shrink-0 text-right">
