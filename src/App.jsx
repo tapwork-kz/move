@@ -76,10 +76,11 @@ export default function App() {
     };
   }, [selectedDoc]);
 
-  // ИСПРАВЛЕНО: Точный поиск по ведомости с учетом выбранного филиала
+  // ИСПРАВЛЕНО: Гарантированная передача филиала безundefined значений
   useEffect(() => {
     if (currentTab !== 'statement') return;
-    if (!statementQuery.trim()) {
+    const trimmed = statementQuery.trim();
+    if (!trimmed) {
       setStatementItems([]);
       return;
     }
@@ -87,19 +88,37 @@ export default function App() {
     const delayDebounce = setTimeout(async () => {
       setStatementLoading(true);
       try {
-        const targetBranch = user?.branch === 'ALL' ? (selectedBranch || 'rozybakieva') : (user?.branch || 'rozybakieva');
+        // Чёткое определение текущего филиала пользователя
+        let activeBranch = user?.branch;
+        if (!activeBranch || activeBranch === 'ALL') {
+          activeBranch = selectedBranch || 'rozybakieva';
+        }
+
         const { data, error } = await supabase.rpc('search_inventory_with_prices', {
-          search_query: statementQuery.trim(),
-          user_branch: targetBranch
+          search_query: trimmed,
+          user_branch: activeBranch
         });
-        if (error) throw error;
-        setStatementItems(data || []);
+
+        if (error) {
+          console.error("Ошибка Supabase RPC:", error);
+          // Запасной фоллбек: прямая выборка из таблицы inventory, если RPC заблокирован
+          const { data: fallbackData } = await supabase
+            .from('inventory')
+            .select('id, raw_name, normalized_name, stock_warehouse, stock_showcase')
+            .ilike('raw_name', `%${trimmed}%`)
+            .eq('branch', activeBranch)
+            .limit(100);
+
+          setStatementItems((fallbackData || []).map(item => ({ ...item, latest_price: '—' })));
+        } else {
+          setStatementItems(data || []);
+        }
       } catch (err) {
         console.error("Ошибка поиска по ведомости:", err.message);
       } finally {
         setStatementLoading(false);
       }
-    }, 400);
+    }, 300);
 
     return () => clearTimeout(delayDebounce);
   }, [statementQuery, currentTab, user, selectedBranch]);
@@ -218,11 +237,17 @@ export default function App() {
     return doc.document_items.some(item => item.is_in_stock === true);
   };
 
-  // ИСПРАВЛЕНО: Безопасное вычисление бейджей количества над вкладками
+  // ИСПРАВЛЕНО: Корректный перерасчет счетчиков вкладок с учетом филиала и остатков
   const updateTabCounters = async () => {
     if (!user) return;
     try {
-      let query = supabase.from('documents').select('status, dept, doc_type, period_end, document_items(is_in_stock)');
+      let activeBranch = user?.branch;
+      if (!activeBranch || activeBranch === 'ALL') {
+        activeBranch = selectedBranch || 'rozybakieva';
+      }
+
+      // 1. Запрашиваем документы с элементами
+      let query = supabase.from('documents').select('id, status, dept, doc_type, period_end, document_items(normalized_name, is_in_stock)');
       const userDepts = Array.isArray(user.dept) ? user.dept : (user.dept ? [user.dept] : []);
       const hasAllAccess = user.role === 'Директор' || user.role === 'Супервайзер' || user.role === 'Инфо-консультант' || userDepts.includes('ALL');
 
@@ -233,43 +258,82 @@ export default function App() {
         query = query.eq('dept', selectedDept);
       }
 
-      const { data } = await query;
-      if (data) {
-        const todayStr = new Date().toISOString().split('T')[0];
-        const counts = { new: 0, completed: 0, gifts: 0, archive: 0 };
-        
-        data.forEach(doc => {
-          if (doc.doc_type !== 'media' && !hasStock(doc)) return;
+      const { data: docsData, error } = await query;
+      if (error || !docsData) return;
 
-          let computedStatus = doc.status;
-          const isCorrection = doc.file_name ? doc.file_name.toLowerCase().includes('корректировк') : false;
+      // 2. Собираем уникальные товары для проверки остатков конкретного филиала
+      const allNormalizedNames = new Set();
+      docsData.forEach(doc => {
+        if (doc.document_items) {
+          doc.document_items.forEach(item => {
+            if (item.normalized_name) allNormalizedNames.add(item.normalized_name);
+          });
+        }
+      });
 
-          if (doc.period_end && doc.period_end < todayStr && !isCorrection) {
-            if (doc.status === 'new' && !hasStock(doc)) computedStatus = 'archive';
-            else if (doc.status === 'processed') computedStatus = 'completed';
-          }
+      // 3. Запрашиваем остатки склада/витрины для выбранного филиала
+      let branchStockMap = {};
+      if (allNormalizedNames.size > 0) {
+        const { data: invData } = await supabase
+          .from('inventory')
+          .select('normalized_name, stock_warehouse, stock_showcase')
+          .in('normalized_name', Array.from(allNormalizedNames))
+          .eq('branch', activeBranch);
 
-          if (doc.doc_type === 'gift' || doc.doc_type === 'media') {
-            if (doc.status === 'new' && (doc.doc_type === 'media' || hasStock(doc))) {
-              counts.gifts++; 
-            } else if (computedStatus === 'completed') {
-              counts.completed++;
-            } else if (computedStatus === 'archive') {
-              counts.archive++;
+        if (invData) {
+          invData.forEach(inv => {
+            const totalStock = (inv.stock_warehouse || 0) + (inv.stock_showcase || 0);
+            if (totalStock > 0) {
+              branchStockMap[inv.normalized_name] = true;
             }
-          } else {
-            if (computedStatus === 'new' && hasStock(doc)) {
-              counts.new++; 
-            } else if (computedStatus === 'completed') {
-              counts.completed++; 
-            } else if (computedStatus === 'archive') {
-              counts.archive++;
-            }
-          }
-        });
-        setTabCounts(counts);
+          });
+        }
       }
-    } catch (err) { console.error("Ошибка обновления счетчиков:", err); }
+
+      // 4. Вспомогательная функция наличия товара ИМЕННО в текущем филиале
+      const checkDocStockInBranch = (doc) => {
+        if (!doc.document_items || doc.document_items.length === 0) return true;
+        return doc.document_items.some(item => branchStockMap[item.normalized_name] === true || item.is_in_stock === true);
+      };
+
+      const todayStr = new Date().toISOString().split('T')[0];
+      const counts = { new: 0, completed: 0, gifts: 0, archive: 0 };
+
+      docsData.forEach(doc => {
+        const inStockInBranch = checkDocStockInBranch(doc);
+        if (doc.doc_type !== 'media' && !inStockInBranch) return;
+
+        let computedStatus = doc.status;
+        const isCorrection = doc.file_name ? doc.file_name.toLowerCase().includes('корректировк') : false;
+
+        if (doc.period_end && doc.period_end < todayStr && !isCorrection) {
+          if (doc.status === 'new' && !inStockInBranch) computedStatus = 'archive';
+          else if (doc.status === 'processed') computedStatus = 'completed';
+        }
+
+        if (doc.doc_type === 'gift' || doc.doc_type === 'media') {
+          if (doc.status === 'new' && (doc.doc_type === 'media' || inStockInBranch)) {
+            counts.gifts++; 
+          } else if (computedStatus === 'completed') {
+            counts.completed++;
+          } else if (computedStatus === 'archive') {
+            counts.archive++;
+          }
+        } else {
+          if (computedStatus === 'new' && inStockInBranch) {
+            counts.new++; 
+          } else if (computedStatus === 'completed') {
+            counts.completed++; 
+          } else if (computedStatus === 'archive') {
+            counts.archive++;
+          }
+        }
+      });
+
+      setTabCounts(counts);
+    } catch (err) { 
+      console.error("Ошибка обновления счетчиков:", err); 
+    }
   };
 
   const handleTouchStart = (e) => {
@@ -413,7 +477,11 @@ export default function App() {
         const namesToFetch = itemsData.map(i => i.normalized_name).filter(Boolean);
         
         if (namesToFetch.length > 0) {
-          const targetBranch = user?.branch === 'ALL' ? (selectedBranch || 'rozybakieva') : (user?.branch || 'rozybakieva');
+          let targetBranch = user?.branch;
+          if (!targetBranch || targetBranch === 'ALL') {
+            targetBranch = selectedBranch || 'rozybakieva';
+          }
+
           const { data: invData, error: invError } = await supabase
             .from('inventory')
             .select('normalized_name, stock_warehouse, stock_showcase')
