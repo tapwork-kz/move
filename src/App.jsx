@@ -135,8 +135,8 @@ export default function App() {
             *,
             branch_statuses:document_branch_statuses(
               branch, status, processed_at, completed_at,
-              processed_by:users!processed_by_iin(full_name),
-              completed_by:users!completed_by_iin(full_name)
+              processed_by:users!fk_branch_status_processed_iin(full_name),
+              completed_by:users!fk_branch_status_completed_iin(full_name)
             ),
             document_items(price, is_in_stock, change_type, raw_name)
           )
@@ -283,11 +283,11 @@ export default function App() {
     localStorage.removeItem('promo_app_user');
   };
 
-  // ИСПРАВЛЕННАЯ ЗАГРУЗКА: Честная изолированная загрузка документов текущего филиала
+  // ИСПРАВЛЕННАЯ ЗАГРУЗКА: Использование явных названий foreign key для корректного JOIN
   const fetchDocuments = async () => {
     if (!user) return;
     setLoading(true);
-    setDocuments([]); // Мгновенная очистка во избежание «мигания» чужих акций
+    setDocuments([]); 
     try {
       const activeBranch = getActiveBranch();
 
@@ -295,8 +295,8 @@ export default function App() {
         *,
         branch_statuses:document_branch_statuses(
           status, branch, processed_at, completed_at,
-          processed_by:users!processed_by_iin(full_name),
-          completed_by:users!completed_by_iin(full_name)
+          processed_by:users!fk_branch_status_processed_iin(full_name),
+          completed_by:users!fk_branch_status_completed_iin(full_name)
         ),
         document_items(price, is_in_stock, change_type, raw_name, normalized_name)
       `);
@@ -452,7 +452,7 @@ export default function App() {
     } catch (err) { console.error("Ошибка локальной подгрузки остатков:", err.message); }
   };
 
-  // Оформление акции в филиальном статусе через UPSERT
+  // Оформление акции в филиальном статусе через UPSERT с жесткой фиксацией внешнего ключа
   const executeStatusChange = async () => {
     const { type, docId } = confirmModal;
     const activeBranch = getActiveBranch();
