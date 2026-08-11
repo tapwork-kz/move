@@ -78,7 +78,7 @@ export default function App() {
     };
   }, [selectedDoc]);
 
-  // Быстрый поиск по ведомости
+  // Поиск по ведомости
   useEffect(() => {
     if (currentTab !== 'statement') return;
     const trimmed = statementQuery.trim();
@@ -91,23 +91,15 @@ export default function App() {
       setStatementLoading(true);
       try {
         const activeBranch = getActiveBranch();
-        const { data, error } = await supabase.rpc('search_inventory_with_prices', {
-          search_query: trimmed,
-          user_branch: activeBranch
-        });
+        const { data, error } = await supabase
+          .from('inventory')
+          .select('id, raw_name, normalized_name, stock_warehouse, stock_showcase')
+          .ilike('raw_name', `%${trimmed}%`)
+          .eq('branch', activeBranch)
+          .limit(100);
 
-        if (error) {
-          const { data: fallbackData } = await supabase
-            .from('inventory')
-            .select('id, raw_name, normalized_name, stock_warehouse, stock_showcase')
-            .ilike('raw_name', `%${trimmed}%`)
-            .eq('branch', activeBranch)
-            .limit(100);
-
-          setStatementItems((fallbackData || []).map(item => ({ ...item, latest_price: '—' })));
-        } else {
-          setStatementItems(data || []);
-        }
+        if (error) throw error;
+        setStatementItems((data || []).map(item => ({ ...item, latest_price: '—' })));
       } catch (err) {
         console.error("Ошибка поиска по ведомости:", err.message);
       } finally {
@@ -169,48 +161,126 @@ export default function App() {
     return () => window.removeEventListener('focus', handleWindowFocus);
   }, [currentTab, selectedDept, searchQuery, dateFilter, monthFilter, promoSubTab, giftsSubTab, user, selectedBranch]);
 
-  // Загрузка документов через сфокусированную RPC-функцию PostgreSQL
+  // Чистый безопасный запрос документов с филиальными статусами
   const fetchDocuments = async () => {
     if (!user) return;
     setLoading(true);
     try {
       const activeBranch = getActiveBranch();
 
-      const { data, error } = await supabase.rpc('get_documents_for_branch', {
-        p_branch: activeBranch,
-        p_dept: selectedDept || null
+      // 1. Получаем документы
+      let query = supabase.from('documents').select(`
+        *,
+        document_items(normalized_name, price, change_type, is_in_stock)
+      `);
+
+      const userDepts = Array.isArray(user.dept) ? user.dept : (user.dept ? [user.dept] : []);
+      const hasAllAccess = user.role === 'Директор' || user.role === 'Супервайзер' || user.role === 'Инфо-консультант' || userDepts.includes('ALL');
+
+      if (!hasAllAccess && userDepts.length > 0) {
+        const deptConditions = userDepts.map(d => `dept.ilike.*${d}*`).concat(['dept.ilike.*Другое*']);
+        query = query.or(deptConditions.join(','));
+      } else if (selectedDept) {
+        query = query.eq('dept', selectedDept);
+      }
+
+      if (searchQuery) {
+        query = query.or(`promo_number.ilike.%${searchQuery}%,file_name.ilike.%${searchQuery}%`);
+      }
+
+      if (!searchQuery) {
+        if (dateFilter) {
+          query = query.gte('created_at', `${dateFilter}T00:00:00`).lte('created_at', `${dateFilter}T23:59:59`);
+        } else {
+          const needsMonthDefault = currentTab === 'archive' || 
+            (currentTab === 'new' && promoSubTab === 'processed') || 
+            (currentTab === 'gifts' && giftsSubTab === 'processed');
+
+          const activeMonth = monthFilter || (needsMonthDefault ? new Date().toISOString().slice(0, 7) : '');
+
+          if (activeMonth) {
+            const [year, month] = activeMonth.split('-').map(Number);
+            const lastDay = new Date(year, month, 0).getDate();
+            query = query.gte('created_at', `${activeMonth}-01T00:00:00`).lte('created_at', `${activeMonth}-${lastDay}T23:59:59`);
+          }
+        }
+      }
+
+      const { data: rawDocs, error: docsError } = await query.order('created_at', { ascending: false });
+      if (docsError) throw docsError;
+
+      const docIds = (rawDocs || []).map(d => d.id);
+      
+      // 2. Получаем автономные статусы филиала из document_branch_statuses
+      let branchStatusMap = {};
+      if (docIds.length > 0) {
+        const { data: bStatuses } = await supabase
+          .from('document_branch_statuses')
+          .select('document_id, status, processed_at, completed_at, processed_by_iin, completed_by_iin')
+          .in('document_id', docIds)
+          .eq('branch', activeBranch);
+
+        if (bStatuses) {
+          bStatuses.forEach(bs => {
+            branchStatusMap[bs.document_id] = bs;
+          });
+        }
+      }
+
+      // 3. Получаем остатки активного магазина из таблицы inventory
+      const namesSet = new Set();
+      (rawDocs || []).forEach(d => {
+        if (d.document_items) {
+          d.document_items.forEach(item => {
+            if (item.normalized_name) namesSet.add(item.normalized_name);
+          });
+        }
       });
 
-      if (error) throw error;
+      let storeStockMap = {};
+      if (namesSet.size > 0) {
+        const { data: invData } = await supabase
+          .from('inventory')
+          .select('normalized_name, stock_warehouse, stock_showcase')
+          .in('normalized_name', Array.from(namesSet))
+          .eq('branch', activeBranch);
+
+        if (invData) {
+          invData.forEach(inv => {
+            if ((inv.stock_warehouse || 0) + (inv.stock_showcase || 0) > 0) {
+              storeStockMap[inv.normalized_name] = true;
+            }
+          });
+        }
+      }
 
       const todayStr = new Date().toISOString().split('T')[0];
 
-      let mapped = (data || []).map(doc => {
-        let s = doc.branch_status || 'new';
+      let mapped = (rawDocs || []).map(doc => {
+        const inStock = doc.doc_type === 'media' ? true : (
+          doc.document_items && doc.document_items.length > 0
+            ? doc.document_items.some(i => storeStockMap[i.normalized_name] === true)
+            : true
+        );
+
+        const bStatusObj = branchStatusMap[doc.id] || {};
+        let s = bStatusObj.status || 'new';
+
         const isCorrection = doc.file_name ? doc.file_name.toLowerCase().includes('корректировк') : false;
 
         if (doc.period_end && doc.period_end < todayStr && !isCorrection) {
-          if (s === 'new' && !doc.has_branch_stock) s = 'archive';
+          if (s === 'new' && !inStock) s = 'archive';
           else if (s === 'processed') s = 'completed';
         }
 
         return { 
           ...doc, 
-          computedStatus: s,
-          branchInStock: doc.has_branch_stock
+          computedStatus: s, 
+          branchInStock: inStock
         };
       });
 
-      // Поиск по ключевому слову
-      if (searchQuery) {
-        const sq = searchQuery.toLowerCase();
-        mapped = mapped.filter(d => 
-          (d.promo_number && d.promo_number.toLowerCase().includes(sq)) || 
-          (d.file_name && d.file_name.toLowerCase().includes(sq))
-        );
-      }
-
-      // Подсчет бейджей без задержек
+      // Считаем бейджи
       const counts = { new: 0, completed: 0, gifts: 0, archive: 0 };
       mapped.forEach(doc => {
         if (doc.doc_type === 'gift' || doc.doc_type === 'media') {
@@ -225,7 +295,7 @@ export default function App() {
       });
       setTabCounts(counts);
 
-      // Фильтрация по текущей активной вкладке
+      // Фильтрация карточек для текущей вкладки
       let finalDocs = [];
       if (currentTab === 'new') {
         if (promoSubTab === 'new') {
@@ -629,11 +699,8 @@ export default function App() {
                       <span className="text-amber-600 dark:text-amber-400 font-bold bg-amber-50 dark:bg-amber-950/30 px-1 rounded transition-colors duration-300">Нет в наличии</span>
                     ) : (
                       <div className="text-slate-400 dark:text-slate-500 flex flex-wrap gap-x-2">
-                        {doc.processed_by_name && (
-                          <span>Оформил: {doc.processed_by_name} {doc.processed_at && `— ${formatCardDate(doc.processed_at)}`}</span>
-                        )}
-                        {doc.completed_by_name && (
-                          <span>Закрыл: {doc.completed_by_name} {doc.completed_at && `— ${formatCardDate(doc.completed_at)}`}</span>
+                        {doc.processed_at && (
+                          <span>Оформил: Менеджер {formatCardDate(doc.processed_at)}</span>
                         )}
                       </div>
                     )}
