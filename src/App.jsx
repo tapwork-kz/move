@@ -54,16 +54,13 @@ export default function App() {
   const [giftsSubTab, setGiftsSubTab] = useState('new'); 
   const [touchStart, setTouchStart] = useState(null);
   
+  // ИСПРАВЛЕНО: Убрано дублирующее значение "ALL" из списка отделов
   const departments = ["#Цифра 🟠", "#ЧТ 🟢", "#МБТ 🟡", "#КБТ 🔵", "#Другое"];
   
   const branches = [
     { id: 'rozybakieva', name: 'Алматы, Розыбакиева 275а' },
     { id: 'mart_village', name: 'Алматы, Mart Village' }
   ];
-
-  const getActiveBranch = () => {
-    return user?.branch === 'ALL' ? (selectedBranch || 'rozybakieva') : (user?.branch || 'rozybakieva');
-  };
 
   useEffect(() => {
     if (selectedDoc) {
@@ -79,7 +76,7 @@ export default function App() {
     };
   }, [selectedDoc]);
 
-  // Поиск по ведомости
+  // ИСПРАВЛЕНО: Гарантированная передача филиала безundefined значений
   useEffect(() => {
     if (currentTab !== 'statement') return;
     const trimmed = statementQuery.trim();
@@ -91,14 +88,20 @@ export default function App() {
     const delayDebounce = setTimeout(async () => {
       setStatementLoading(true);
       try {
-        const activeBranch = getActiveBranch();
+        // Чёткое определение текущего филиала пользователя
+        let activeBranch = user?.branch;
+        if (!activeBranch || activeBranch === 'ALL') {
+          activeBranch = selectedBranch || 'rozybakieva';
+        }
+
         const { data, error } = await supabase.rpc('search_inventory_with_prices', {
           search_query: trimmed,
           user_branch: activeBranch
         });
 
         if (error) {
-          console.error("RPC Error:", error);
+          console.error("Ошибка Supabase RPC:", error);
+          // Запасной фоллбек: прямая выборка из таблицы inventory, если RPC заблокирован
           const { data: fallbackData } = await supabase
             .from('inventory')
             .select('id, raw_name, normalized_name, stock_warehouse, stock_showcase')
@@ -167,20 +170,34 @@ export default function App() {
   }
 
   const initPushNotifications = async (currentUser) => {
-    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+      console.log('Push-уведомления не поддерживаются данным браузером');
+      return;
+    }
     try {
       const permission = await Notification.requestPermission();
-      if (permission !== 'granted') return;
+      if (permission !== 'granted') {
+        console.log('Пользователь отклонил запрос на уведомления');
+        return;
+      }
       const registration = await navigator.serviceWorker.register('sw.js');
       let subscription = await registration.pushManager.getSubscription();
-      if (subscription) await subscription.unsubscribe();
+      if (subscription) {
+        await subscription.unsubscribe();
+      }
       subscription = await registration.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
       });
-      await supabase.from('users').update({ push_sub: subscription.toJSON() }).eq('iin', currentUser.iin);
+      const { error } = await supabase
+        .from('users')
+        .update({ push_sub: subscription.toJSON() }) 
+        .eq('iin', currentUser.iin);
+
+      if (error) throw error;
+      console.log('✅ Новая Push-подписка успешно сохранена в Supabase в формате JSON!');
     } catch (err) {
-      console.error('Ошибка пушей:', err.message);
+      console.error('Ошибка при настройке веб-пушей:', err.message);
     }
   };
 
@@ -195,7 +212,9 @@ export default function App() {
           setSelectedBranch(parsed.branch === 'ALL' ? 'rozybakieva' : (parsed.branch || 'rozybakieva'));
           return;
         }
-      } catch (e) { console.error("Ошибка сессии:", e); }
+      } catch (e) {
+        console.error("Ошибка парсинга сессии:", e);
+      }
     }
     localStorage.removeItem('promo_app_user');
     setUser(null);
@@ -206,37 +225,121 @@ export default function App() {
     initPushNotifications(user);
     setDocuments([]); 
     fetchDocuments();
+    updateTabCounters();
 
-    const handleWindowFocus = () => fetchDocuments();
+    const handleWindowFocus = () => {
+      fetchDocuments();
+      updateTabCounters();
+    };
     window.addEventListener('focus', handleWindowFocus);
     return () => window.removeEventListener('focus', handleWindowFocus);
   }, [currentTab, selectedDept, searchQuery, dateFilter, monthFilter, promoSubTab, giftsSubTab, user, selectedBranch]);
 
-  // Карта наличия товаров филиала
-  const getBranchInventoryMap = async (activeBranch, docs) => {
-    const names = new Set();
-    docs.forEach(doc => {
-      if (doc.document_items) {
-        doc.document_items.forEach(i => { if (i.normalized_name) names.add(i.normalized_name); });
+  const hasStock = (doc) => {
+    if (!doc?.document_items || doc.document_items.length === 0) return true;
+    return doc.document_items.some(item => item.is_in_stock === true);
+  };
+
+  // ИСПРАВЛЕНО: Корректный перерасчет счетчиков вкладок с учетом филиала и остатков
+  const updateTabCounters = async () => {
+    if (!user) return;
+    try {
+      let activeBranch = user?.branch;
+      if (!activeBranch || activeBranch === 'ALL') {
+        activeBranch = selectedBranch || 'rozybakieva';
       }
-    });
-    if (names.size === 0) return {};
 
-    const { data } = await supabase
-      .from('inventory')
-      .select('normalized_name, stock_warehouse, stock_showcase')
-      .in('normalized_name', Array.from(names))
-      .eq('branch', activeBranch);
+      // 1. Запрашиваем документы с элементами
+      let query = supabase.from('documents').select('id, status, dept, doc_type, period_end, document_items(normalized_name, is_in_stock)');
+      const userDepts = Array.isArray(user.dept) ? user.dept : (user.dept ? [user.dept] : []);
+      const hasAllAccess = user.role === 'Директор' || user.role === 'Супервайзер' || user.role === 'Инфо-консультант' || userDepts.includes('ALL');
 
-    const map = {};
-    if (data) {
-      data.forEach(inv => {
-        if ((inv.stock_warehouse || 0) + (inv.stock_showcase || 0) > 0) {
-          map[inv.normalized_name] = true;
+      if (!hasAllAccess && userDepts.length > 0) {
+        const deptConditions = userDepts.map(d => `dept.ilike.*${d}*`).concat(['dept.ilike.*Другое*']);
+        query = query.or(deptConditions.join(','));
+      } else if (selectedDept) {
+        query = query.eq('dept', selectedDept);
+      }
+
+      const { data: docsData, error } = await query;
+      if (error || !docsData) return;
+
+      // 2. Собираем уникальные товары для проверки остатков конкретного филиала
+      const allNormalizedNames = new Set();
+      docsData.forEach(doc => {
+        if (doc.document_items) {
+          doc.document_items.forEach(item => {
+            if (item.normalized_name) allNormalizedNames.add(item.normalized_name);
+          });
         }
       });
+
+      // 3. Запрашиваем остатки склада/витрины для выбранного филиала
+      let branchStockMap = {};
+      if (allNormalizedNames.size > 0) {
+        const { data: invData } = await supabase
+          .from('inventory')
+          .select('normalized_name, stock_warehouse, stock_showcase')
+          .in('normalized_name', Array.from(allNormalizedNames))
+          .eq('branch', activeBranch);
+
+        if (invData) {
+          invData.forEach(inv => {
+            const totalStock = (inv.stock_warehouse || 0) + (inv.stock_showcase || 0);
+            if (totalStock > 0) {
+              branchStockMap[inv.normalized_name] = true;
+            }
+          });
+        }
+      }
+
+      // 4. Вспомогательная функция наличия товара ИМЕННО в текущем филиале
+      const checkDocStockInBranch = (doc) => {
+        if (!doc.document_items || doc.document_items.length === 0) return true;
+        return doc.document_items.some(item => branchStockMap[item.normalized_name] === true || item.is_in_stock === true);
+      };
+
+      const todayStr = new Date().toISOString().split('T')[0];
+      const counts = { new: 0, completed: 0, gifts: 0, archive: 0 };
+
+      docsData.forEach(doc => {
+        const inStockInBranch = checkDocStockInBranch(doc);
+        if (doc.doc_type !== 'media' && !inStockInBranch) return;
+
+        // Берем статус филиала из дочерней таблицы
+        const bStatusObj = (doc.branch_statuses || []).find(bs => bs.branch === activeBranch) || {};
+        let computedStatus = bStatusObj.status || 'new';
+
+        const isCorrection = doc.file_name ? doc.file_name.toLowerCase().includes('корректировк') : false;
+
+        if (doc.period_end && doc.period_end < todayStr && !isCorrection) {
+          if (doc.status === 'new' && !inStockInBranch) computedStatus = 'archive';
+          else if (doc.status === 'processed') computedStatus = 'completed';
+        }
+
+        if (doc.doc_type === 'gift' || doc.doc_type === 'media') {
+          if (doc.status === 'new' && (doc.doc_type === 'media' || inStockInBranch)) {
+            counts.gifts++; 
+          } else if (computedStatus === 'completed') {
+            counts.completed++;
+          } else if (computedStatus === 'archive') {
+            counts.archive++;
+          }
+        } else {
+          if (computedStatus === 'new' && inStockInBranch) {
+            counts.new++; 
+          } else if (computedStatus === 'completed') {
+            counts.completed++; 
+          } else if (computedStatus === 'archive') {
+            counts.archive++;
+          }
+        }
+      });
+
+      setTabCounts(counts);
+    } catch (err) { 
+      console.error("Ошибка обновления счетчиков:", err); 
     }
-    return map;
   };
 
   const handleTouchStart = (e) => {
@@ -283,14 +386,14 @@ export default function App() {
     localStorage.removeItem('promo_app_user');
   };
 
-  // ИСПРАВЛЕННАЯ ЗАГРУЗКА: Использование явных названий foreign key для корректного JOIN
   const fetchDocuments = async () => {
     if (!user) return;
     setLoading(true);
-    setDocuments([]); 
+    setDocuments([]); // Моментальная очистка перед запрузом свежих данных
     try {
       const activeBranch = getActiveBranch();
 
+      // Запрашиваем документы со статусами ИМЕННО текущего филиала и явными внешними ключами
       let query = supabase.from('documents').select(`
         *,
         branch_statuses:document_branch_statuses(
@@ -336,15 +439,17 @@ export default function App() {
       const { data, error } = await query.order('created_at', { ascending: false });
       if (error) throw error;
 
+      const activeBranch = getActiveBranch();
       const branchStockMap = await getBranchInventoryMap(activeBranch, data || []);
       const todayStr = new Date().toISOString().split('T')[0];
 
       let mapped = (data || []).map(doc => {
+        // Проверка наличия товаров именно в активном филиале
         const inStock = doc.document_items && doc.document_items.length > 0 
           ? doc.document_items.some(i => branchStockMap[i.normalized_name] === true)
           : true;
 
-        // Фильтруем статус филиала строго по activeBranch
+        // Достаем статус строго для текущего выбранного филиала
         const bStatusObj = (doc.branch_statuses || []).find(bs => bs.branch === activeBranch) || {};
         let s = bStatusObj.status || 'new';
 
@@ -366,40 +471,25 @@ export default function App() {
         };
       });
 
-      // Пересчет бейджей
-      const counts = { new: 0, completed: 0, gifts: 0, archive: 0 };
-      mapped.forEach(doc => {
-        if (doc.doc_type === 'gift' || doc.doc_type === 'media') {
-          if (doc.computedStatus === 'new' && (doc.doc_type === 'media' || doc.branchInStock)) counts.gifts++;
-          else if (doc.computedStatus === 'completed') counts.completed++;
-          else if (doc.computedStatus === 'archive') counts.archive++;
-        } else {
-          if (doc.computedStatus === 'new' && doc.branchInStock) counts.new++;
-          else if (doc.computedStatus === 'completed') counts.completed++;
-          else if (doc.computedStatus === 'archive') counts.archive++;
-        }
-      });
-      setTabCounts(counts);
-
       let finalDocs = [];
       if (currentTab === 'new') {
         if (promoSubTab === 'new') {
-          finalDocs = mapped.filter(doc => doc.computedStatus === 'new' && doc.branchInStock && doc.doc_type !== 'gift' && doc.doc_type !== 'media');
+          finalDocs = mapped.filter(doc => doc.computedStatus === 'new' && hasStock(doc) && doc.doc_type !== 'gift' && doc.doc_type !== 'media');
         } else {
-          finalDocs = mapped.filter(doc => ((doc.computedStatus === 'processed') || (doc.computedStatus === 'new' && !doc.branchInStock)) && doc.doc_type !== 'gift' && doc.doc_type !== 'media');
+          finalDocs = mapped.filter(doc => ((doc.computedStatus === 'processed') || (doc.computedStatus === 'new' && !hasStock(doc))) && doc.doc_type !== 'gift' && doc.doc_type !== 'media');
         }
       } else if (currentTab === 'gifts') {
         if (giftsSubTab === 'new') {
-          finalDocs = mapped.filter(doc => (doc.doc_type === 'media' || (doc.doc_type === 'gift' && doc.branchInStock)) && doc.computedStatus === 'new');
+          finalDocs = mapped.filter(doc => (doc.doc_type === 'media' || (doc.doc_type === 'gift' && hasStock(doc))) && doc.status === 'new');
         } else {
-          finalDocs = mapped.filter(doc => (doc.doc_type === 'media' || doc.doc_type === 'gift') && (doc.computedStatus === 'processed' || (doc.doc_type === 'gift' && !doc.branchInStock && doc.computedStatus === 'new')));
+          finalDocs = mapped.filter(doc => (doc.doc_type === 'media' || doc.doc_type === 'gift') && (doc.status === 'processed' || (doc.doc_type === 'gift' && !hasStock(doc) && doc.status === 'new')));
         }
       } else if (currentTab === 'completed') {
         finalDocs = mapped.filter(doc => doc.computedStatus === 'completed');
       } else if (currentTab === 'archive') {
         finalDocs = mapped.filter(doc => 
           (doc.computedStatus === 'archive') || 
-          (doc.period_end && doc.period_end < todayStr && !doc.branchInStock && doc.doc_type !== 'media')
+          (doc.period_end && doc.period_end < todayStr && !hasStock(doc) && doc.doc_type !== 'media')
         );
       }
 
@@ -420,13 +510,16 @@ export default function App() {
         const namesToFetch = itemsData.map(i => i.normalized_name).filter(Boolean);
         
         if (namesToFetch.length > 0) {
-          const activeBranch = getActiveBranch();
+          let targetBranch = user?.branch;
+          if (!targetBranch || targetBranch === 'ALL') {
+            targetBranch = selectedBranch || 'rozybakieva';
+          }
 
           const { data: invData, error: invError } = await supabase
             .from('inventory')
             .select('normalized_name, stock_warehouse, stock_showcase')
             .in('normalized_name', namesToFetch)
-            .eq('branch', activeBranch);
+            .eq('branch', targetBranch);
 
           if (!invError && invData) {
             const invMap = {};
@@ -440,8 +533,7 @@ export default function App() {
             const enrichedItems = itemsData.map(item => ({
               ...item,
               stock_wh: invMap[item.normalized_name]?.wh ?? 0,
-              stock_sc: invMap[item.normalized_name]?.sc ?? 0,
-              is_in_stock: ((invMap[item.normalized_name]?.wh ?? 0) + (invMap[item.normalized_name]?.sc ?? 0)) > 0
+              stock_sc: invMap[item.normalized_name]?.sc ?? 0
             }));
             setDocItems(enrichedItems);
             return;
@@ -452,7 +544,6 @@ export default function App() {
     } catch (err) { console.error("Ошибка локальной подгрузки остатков:", err.message); }
   };
 
-  // Оформление акции в филиальном статусе через UPSERT с жесткой фиксацией внешнего ключа
   const executeStatusChange = async () => {
     const { type, docId } = confirmModal;
     const activeBranch = getActiveBranch();
@@ -469,6 +560,7 @@ export default function App() {
     }
     
     try {
+      // Сохраняем статус СТРОГО для текущего подразделения
       const { error } = await supabase
         .from('document_branch_statuses')
         .upsert({
@@ -528,7 +620,7 @@ export default function App() {
 
   const filteredItems = docItems.filter(item => {
     const matchesText = item.raw_name ? item.raw_name.toLowerCase().includes(itemSearch.toLowerCase()) : false;
-    if (modalTab === 'in_stock') return matchesText && (item.stock_wh > 0 || item.stock_sc > 0);
+    if (modalTab === 'in_stock') return matchesText && item.is_in_stock;
     return matchesText;
   });
 
@@ -568,7 +660,9 @@ export default function App() {
       onTouchEnd={handleTouchEnd}
       className="w-full max-w-full overflow-hidden h-[100dvh] max-h-[100dvh] bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 flex flex-col select-none"
     >
+      {/* ================= ЗАКРЕПЛЕННАЯ СВЕРХУ ПАНЕЛЬ УПРАВЛЕНИЯ ================= */}
       <div className="w-full shrink-0 relative z-30 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-xs transition-colors duration-300">
+        
         <header className="px-4 py-2.5 flex items-center justify-between gap-4 max-w-3xl mx-auto w-full">
           <div className="flex items-center gap-2">
             <div className="bg-blue-600 text-white w-6 h-6 rounded-md flex items-center justify-center font-bold text-xs">PM</div>
@@ -583,6 +677,7 @@ export default function App() {
           </div>
           
           <div className="flex items-center gap-1.5">
+            {/* Выбор филиала только при user.branch === 'ALL' */}
             {user?.branch === 'ALL' && (
               <div className="flex items-center gap-1 bg-blue-50 dark:bg-slate-800 border border-blue-200 dark:border-slate-700 px-1.5 py-0.5 rounded-lg text-[10px]">
                 <select 
@@ -595,6 +690,7 @@ export default function App() {
               </div>
             )}
 
+            {/* Фильтр отделов для административных ролей */}
             {(user?.role === 'Директор' || user?.role === 'Супервайзер' || user?.role === 'Инфо-консультант') && (
               <div className="flex items-center gap-1 bg-amber-50 dark:bg-slate-800 border border-amber-200 dark:border-slate-700 px-1.5 py-0.5 rounded-lg text-[10px] transition-colors duration-500">
                 <IconAdmin />
@@ -612,6 +708,7 @@ export default function App() {
         </header>
 
         <div className="px-4 pb-3 max-w-3xl mx-auto w-full space-y-2.5">
+          
           <div className="grid grid-cols-5 bg-slate-200/70 dark:bg-slate-800/60 p-1 rounded-xl shadow-inner gap-0.5 border border-slate-300/10 transition-colors duration-500">
             {[
               { id: 'new', label: 'Акции', icon: <IconNew />, count: tabCounts.new },
@@ -698,10 +795,15 @@ export default function App() {
               </div>
             )}
           </div>
+
         </div>
       </div>
 
-      <main key={currentTab} className="p-4 flex-1 overflow-y-auto overscroll-y-contain max-w-3xl mx-auto w-full animate-fade-in">
+      {/* ================= ЛЕНТА КАРТОЧЕК ДОКУМЕНТОВ ================= */}
+      <main 
+        key={currentTab} 
+        className="p-4 flex-1 overflow-y-auto overscroll-y-contain max-w-3xl mx-auto w-full animate-fade-in"
+      >
         {currentTab === 'statement' ? (
           <div className="space-y-3 pb-4 pt-1.5">
             {statementLoading ? (
@@ -776,15 +878,15 @@ export default function App() {
                   <h3 className="font-normal text-slate-700 dark:text-slate-200 text-xs sm:text-sm truncate transition-colors duration-300">{doc.file_name}</h3>
                   
                   <div className="flex flex-wrap gap-x-2 text-[9px] pt-0.5">
-                    {!doc.branchInStock && doc.computedStatus === 'new' && doc.doc_type !== 'media' ? (
+                    {!hasStock(doc) && doc.computedStatus === 'new' && doc.doc_type !== 'media' ? (
                       <span className="text-amber-600 dark:text-amber-400 font-bold bg-amber-50 dark:bg-amber-950/30 px-1 rounded transition-colors duration-300">Нет в наличии</span>
                     ) : (
                       <div className="text-slate-400 dark:text-slate-500 flex flex-wrap gap-x-2">
-                        {doc.branchProcessedBy?.full_name && (
-                          <span>Оформил: {doc.branchProcessedBy.full_name} {doc.branchProcessedAt && `— ${formatCardDate(doc.branchProcessedAt)}`}</span>
+                        {doc.processed_by?.full_name && (
+                          <span>Оформил: {doc.processed_by.full_name} {doc.processed_at && `— ${formatCardDate(doc.processed_at)}`}</span>
                         )}
-                        {doc.branchCompletedBy?.full_name && (
-                          <span>Закрыл: {doc.branchCompletedBy.full_name} {doc.branchCompletedAt && `— ${formatCardDate(doc.branchCompletedAt)}`}</span>
+                        {doc.completed_by?.full_name && (
+                          <span>Закрыл: {doc.completed_by.full_name} {doc.completed_at && `— ${formatCardDate(doc.completed_at)}`}</span>
                         )}
                       </div>
                     )}
@@ -803,7 +905,7 @@ export default function App() {
         )}
       </main>
 
-      {/* Модальное окно спецификации */}
+      {/* ================= МОДАЛЬНОЕ ОКНО СПЕЦИФИКАЦИИ ДОКУМЕНТА ================= */}
       {selectedDoc && (() => {
         const isMediaContent = selectedDoc.doc_type === 'media' || selectedDoc.file_name?.match(/\.(jpeg|jpg|gif|png|webp|pdf)$/i);
         
@@ -831,7 +933,7 @@ export default function App() {
                 <div className="p-1 bg-slate-50 dark:bg-slate-950/40 border-b dark:border-slate-800 shrink-0">
                   <div className="grid grid-cols-3 bg-slate-200/60 dark:bg-slate-800/60 p-0.5 rounded-lg text-slate-500 font-medium w-full">
                     <button onClick={() => setModalTab('in_stock')} className={`flex items-center justify-center gap-1 py-1 text-[10px] sm:text-xs rounded-md transition-all ${modalTab === 'in_stock' ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-2xs' : ''}`}>
-                      <IconStock /> В наличии ({docItems.filter(i => i.stock_wh > 0 || i.stock_sc > 0).length})
+                      <IconStock /> В наличии ({docItems.filter(i => i.is_in_stock).length})
                     </button>
                     <button onClick={() => setModalTab('all')} className={`flex items-center justify-center gap-1 py-1 text-[10px] sm:text-xs rounded-md transition-all ${modalTab === 'all' ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-2xs' : ''}`}>
                       <IconAll /> Все ({docItems.length})
@@ -967,7 +1069,7 @@ export default function App() {
 
               <div className="p-2 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 flex items-center justify-end gap-1.5 shrink-0">
                 <button onClick={() => setSelectedDoc(null)} className="px-3 py-1.5 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-bold bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300">Закрыть</button>
-                {selectedDoc?.computedStatus === 'new' && ((currentTab === 'new' && promoSubTab === 'new' && selectedDoc.branchInStock) || (currentTab === 'gifts' && giftsSubTab === 'new')) && (
+                {selectedDoc?.status === 'new' && ((currentTab === 'new' && promoSubTab === 'new' && hasStock(selectedDoc)) || (currentTab === 'gifts' && giftsSubTab === 'new')) && (
                   <button onClick={() => setConfirmModal({ show: true, type: 'process', docId: selectedDoc.id })} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg shadow-xs">Оформить</button>
                 )}
                 {currentTab === 'completed' && (
@@ -979,7 +1081,7 @@ export default function App() {
         );
       })()}
 
-      {/* Диалог подтверждения */}
+      {/* ================= ДИАЛОГ ПОДТВЕРЖДЕНИЯ ДЕЙСТВИЯ ================= */}
       {confirmModal.show && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
           <div className="bg-white dark:bg-slate-900 p-5 rounded-xl max-w-xs w-full shadow-2xl text-center border dark:border-slate-800">
@@ -995,7 +1097,7 @@ export default function App() {
         </div>
       )}
 
-      {/* Модальное окно истории цен */}
+      {/* ================= МОДАЛЬНОЕ ОКНО ИСТОРИИ ЦЕН ТОВАРА ================= */}
       {selectedHistoryItem && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
           <div className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl max-w-md w-full max-h-[70vh] flex flex-col overflow-hidden border dark:border-slate-800 animate-in fade-in zoom-in-95 duration-150">
@@ -1020,8 +1122,6 @@ export default function App() {
                   {priceHistory.map((hist, idx) => {
                     const doc = hist.documents;
                     if (!doc) return null;
-                    const activeBranch = getActiveBranch();
-                    const bStatusObj = (doc.branch_statuses || []).find(bs => bs.branch === activeBranch) || {};
                     return (
                       <div
                         key={idx}
@@ -1048,11 +1148,11 @@ export default function App() {
                           
                           <div className="flex flex-wrap gap-x-2 text-[9px] pt-0.5">
                             <div className="text-slate-400 dark:text-slate-500 flex flex-wrap gap-x-2">
-                              {bStatusObj.processed_by?.full_name && (
-                                <span>Оформил: {bStatusObj.processed_by.full_name} {bStatusObj.processed_at && `— ${formatCardDate(bStatusObj.processed_at)}`}</span>
+                              {doc.processed_by?.full_name && (
+                                <span>Оформил: {doc.processed_by.full_name} {doc.processed_at && `— ${formatCardDate(doc.processed_at)}`}</span>
                               )}
-                              {bStatusObj.completed_by?.full_name && (
-                                <span>Закрыл: {bStatusObj.completed_by.full_name} {bStatusObj.completed_at && `— ${formatCardDate(bStatusObj.completed_at)}`}</span>
+                              {doc.completed_by?.full_name && (
+                                <span>Закрыл: {doc.completed_by.full_name} {doc.completed_at && `— ${formatCardDate(doc.completed_at)}`}</span>
                               )}
                             </div>
                           </div>
@@ -1083,12 +1183,25 @@ export default function App() {
 
       <style>{`
         @keyframes PremiumFadeIn {
-          from { opacity: 0; transform: translate3d(0, 12px, 0); }
-          to { opacity: 1; transform: translate3d(0, 0, 0); }
+          from { 
+            opacity: 0; 
+            transform: translate3d(0, 12px, 0); 
+          }
+          to { 
+            opacity: 1; 
+            transform: translate3d(0, 0, 0); 
+          }
         }
         .animate-fade-in {
           animation: PremiumFadeIn 0.25s cubic-bezier(0.215, 0.610, 0.355, 1) forwards;
           will-change: transform, opacity; 
+        }
+        .style-bounce-scroll {
+          scroll-behavior: smooth;
+          -webkit-overflow-scrolling: touch;
+        }
+        .style-bounce-scroll:active {
+          overscroll-behavior-y: contain;
         }
       `}</style>
     </div>
