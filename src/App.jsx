@@ -82,6 +82,7 @@ export default function App() {
     };
   }, [selectedDoc]);
 
+  // ВЕДОМОСТЬ: Поиск остатков и подтягивание ПОСЛЕДНЕЙ цены по документу
   useEffect(() => {
     if (currentTab !== 'statement') return;
     const trimmed = statementQuery.trim();
@@ -100,8 +101,8 @@ export default function App() {
           user_branch: activeBranch
         });
 
-        if (error) {
-          console.error("Ошибка Supabase RPC:", error);
+        if (error || !data || data.length === 0) {
+          // Fallback: запрашиваем inventory + ищем последнюю цену из document_items
           const { data: fallbackData } = await supabase
             .from('inventory')
             .select('id, raw_name, normalized_name, stock_warehouse, stock_showcase')
@@ -109,7 +110,32 @@ export default function App() {
             .eq('branch', activeBranch)
             .limit(100);
 
-          setStatementItems((fallbackData || []).map(item => ({ ...item, latest_price: '—' })));
+          if (fallbackData && fallbackData.length > 0) {
+            const normNames = fallbackData.map(i => i.normalized_name).filter(Boolean);
+            
+            // Подгружаем последние цены из document_items
+            const { data: priceData } = await supabase
+              .from('document_items')
+              .select('normalized_name, price, created_at')
+              .in('normalized_name', normNames)
+              .order('created_at', { ascending: false });
+
+            const priceMap = {};
+            if (priceData) {
+              priceData.forEach(p => {
+                if (!priceMap[p.normalized_name]) {
+                  priceMap[p.normalized_name] = p.price;
+                }
+              });
+            }
+
+            setStatementItems(fallbackData.map(item => ({
+              ...item,
+              latest_price: priceMap[item.normalized_name] || '—'
+            })));
+          } else {
+            setStatementItems([]);
+          }
         } else {
           setStatementItems(data || []);
         }
@@ -188,12 +214,10 @@ export default function App() {
         userVisibleOnly: true,
         applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
       });
-      const { error } = await supabase
+      await supabase
         .from('users')
         .update({ push_sub: subscription.toJSON() }) 
         .eq('iin', currentUser.iin);
-
-      if (error) throw error;
     } catch (err) {
       console.error('Ошибка при настройке веб-пушей:', err.message);
     }
@@ -233,9 +257,40 @@ export default function App() {
     return () => window.removeEventListener('focus', handleWindowFocus);
   }, [currentTab, selectedDept, searchQuery, dateFilter, monthFilter, promoSubTab, giftsSubTab, user, selectedBranch]);
 
-  const hasStock = (doc) => {
-    if (!doc?.document_items || doc.document_items.length === 0) return true;
-    return doc.document_items.some(item => item.is_in_stock === true);
+  // Вспомогательная функция сборки остатков конкретного филиала
+  const fetchBranchStockMap = async (docs, activeBranch) => {
+    const allNormalizedNames = new Set();
+    docs.forEach(doc => {
+      if (doc.document_items) {
+        doc.document_items.forEach(item => {
+          if (item.normalized_name) allNormalizedNames.add(item.normalized_name);
+        });
+      }
+    });
+
+    const branchStockMap = {};
+    if (allNormalizedNames.size > 0) {
+      const { data: invData } = await supabase
+        .from('inventory')
+        .select('normalized_name, stock_warehouse, stock_showcase')
+        .in('normalized_name', Array.from(allNormalizedNames))
+        .eq('branch', activeBranch);
+
+      if (invData) {
+        invData.forEach(inv => {
+          const totalStock = (inv.stock_warehouse || 0) + (inv.stock_showcase || 0);
+          if (totalStock > 0) {
+            branchStockMap[inv.normalized_name] = true;
+          }
+        });
+      }
+    }
+    return branchStockMap;
+  };
+
+  const checkDocHasStockInBranch = (doc, branchStockMap) => {
+    if (!doc.document_items || doc.document_items.length === 0) return true;
+    return doc.document_items.some(item => branchStockMap[item.normalized_name] === true);
   };
 
   const updateTabCounters = async () => {
@@ -244,7 +299,7 @@ export default function App() {
       const activeBranch = getActiveBranch();
 
       let query = supabase.from('documents').select(`
-        id, dept, doc_type, period_end, 
+        id, dept, doc_type, period_end, file_name,
         document_branch_statuses!inner(status, branch), 
         document_items(normalized_name, is_in_stock)
       `).eq('document_branch_statuses.branch', activeBranch);
@@ -262,38 +317,7 @@ export default function App() {
       const { data: docsData, error } = await query;
       if (error || !docsData) return;
 
-      const allNormalizedNames = new Set();
-      docsData.forEach(doc => {
-        if (doc.document_items) {
-          doc.document_items.forEach(item => {
-            if (item.normalized_name) allNormalizedNames.add(item.normalized_name);
-          });
-        }
-      });
-
-      let branchStockMap = {};
-      if (allNormalizedNames.size > 0) {
-        const { data: invData } = await supabase
-          .from('inventory')
-          .select('normalized_name, stock_warehouse, stock_showcase')
-          .in('normalized_name', Array.from(allNormalizedNames))
-          .eq('branch', activeBranch);
-
-        if (invData) {
-          invData.forEach(inv => {
-            const totalStock = (inv.stock_warehouse || 0) + (inv.stock_showcase || 0);
-            if (totalStock > 0) {
-              branchStockMap[inv.normalized_name] = true;
-            }
-          });
-        }
-      }
-
-      const checkDocStockInBranch = (doc) => {
-        if (!doc.document_items || doc.document_items.length === 0) return true;
-        return doc.document_items.some(item => branchStockMap[item.normalized_name] === true || item.is_in_stock === true);
-      };
-
+      const branchStockMap = await fetchBranchStockMap(docsData, activeBranch);
       const todayStr = new Date().toISOString().split('T')[0];
       const counts = { new: 0, completed: 0, gifts: 0, archive: 0 };
 
@@ -303,7 +327,7 @@ export default function App() {
           : doc.document_branch_statuses;
 
         const currentBranchStatus = branchStatusObj?.status || 'new';
-        const inStockInBranch = checkDocStockInBranch(doc);
+        const inStockInBranch = checkDocHasStockInBranch(doc, branchStockMap);
         if (doc.doc_type !== 'media' && !inStockInBranch) return;
 
         let computedStatus = currentBranchStatus;
@@ -398,7 +422,7 @@ export default function App() {
           processed_by:users!processed_by_iin(full_name),
           completed_by:users!completed_by_iin(full_name)
         ),
-        document_items(price, is_in_stock, change_type, raw_name)
+        document_items(price, is_in_stock, change_type, raw_name, normalized_name)
       `).eq('document_branch_statuses.branch', activeBranch);
 
       const userDepts = Array.isArray(user.dept) ? user.dept : (user.dept ? [user.dept] : []);
@@ -436,18 +460,22 @@ export default function App() {
       const { data, error } = await query.order('created_at', { ascending: false });
       if (error) throw error;
 
+      const branchStockMap = await fetchBranchStockMap(data || [], activeBranch);
       const todayStr = new Date().toISOString().split('T')[0];
+
       let mapped = (data || []).map(doc => {
         const branchStatusObj = Array.isArray(doc.document_branch_statuses) 
           ? doc.document_branch_statuses[0] 
           : doc.document_branch_statuses;
 
         const currentBranchStatus = branchStatusObj?.status || 'new';
+        const docInStock = checkDocHasStockInBranch(doc, branchStockMap);
+
         let s = currentBranchStatus;
         const isCorrection = doc.file_name ? doc.file_name.toLowerCase().includes('корректировк') : false;
 
         if (doc.period_end && doc.period_end < todayStr && !isCorrection) {
-          if (currentBranchStatus === 'new' && !hasStock(doc)) s = 'archive';
+          if (currentBranchStatus === 'new' && !docInStock) s = 'archive';
           else if (currentBranchStatus === 'processed') s = 'completed';
         }
 
@@ -455,6 +483,7 @@ export default function App() {
           ...doc, 
           computedStatus: s,
           status: currentBranchStatus,
+          inStockInBranch: docInStock,
           processed_by: branchStatusObj?.processed_by,
           processed_at: branchStatusObj?.processed_at,
           completed_by: branchStatusObj?.completed_by,
@@ -465,22 +494,22 @@ export default function App() {
       let finalDocs = [];
       if (currentTab === 'new') {
         if (promoSubTab === 'new') {
-          finalDocs = mapped.filter(doc => doc.computedStatus === 'new' && hasStock(doc) && doc.doc_type !== 'gift' && doc.doc_type !== 'media');
+          finalDocs = mapped.filter(doc => doc.computedStatus === 'new' && doc.inStockInBranch && doc.doc_type !== 'gift' && doc.doc_type !== 'media');
         } else {
-          finalDocs = mapped.filter(doc => ((doc.computedStatus === 'processed') || (doc.computedStatus === 'new' && !hasStock(doc))) && doc.doc_type !== 'gift' && doc.doc_type !== 'media');
+          finalDocs = mapped.filter(doc => ((doc.computedStatus === 'processed') || (doc.computedStatus === 'new' && !doc.inStockInBranch)) && doc.doc_type !== 'gift' && doc.doc_type !== 'media');
         }
       } else if (currentTab === 'gifts') {
         if (giftsSubTab === 'new') {
-          finalDocs = mapped.filter(doc => (doc.doc_type === 'media' || (doc.doc_type === 'gift' && hasStock(doc))) && doc.status === 'new');
+          finalDocs = mapped.filter(doc => (doc.doc_type === 'media' || (doc.doc_type === 'gift' && doc.inStockInBranch)) && doc.status === 'new');
         } else {
-          finalDocs = mapped.filter(doc => (doc.doc_type === 'media' || doc.doc_type === 'gift') && (doc.status === 'processed' || (doc.doc_type === 'gift' && !hasStock(doc) && doc.status === 'new')));
+          finalDocs = mapped.filter(doc => (doc.doc_type === 'media' || doc.doc_type === 'gift') && (doc.status === 'processed' || (doc.doc_type === 'gift' && !doc.inStockInBranch && doc.status === 'new')));
         }
       } else if (currentTab === 'completed') {
         finalDocs = mapped.filter(doc => doc.computedStatus === 'completed');
       } else if (currentTab === 'archive') {
         finalDocs = mapped.filter(doc => 
           (doc.computedStatus === 'archive') || 
-          (doc.period_end && doc.period_end < todayStr && !hasStock(doc) && doc.doc_type !== 'media')
+          (doc.period_end && doc.period_end < todayStr && !doc.inStockInBranch && doc.doc_type !== 'media')
         );
       }
 
@@ -518,11 +547,16 @@ export default function App() {
               };
             });
 
-            const enrichedItems = itemsData.map(item => ({
-              ...item,
-              stock_wh: invMap[item.normalized_name]?.wh ?? 0,
-              stock_sc: invMap[item.normalized_name]?.sc ?? 0
-            }));
+            const enrichedItems = itemsData.map(item => {
+              const wh = invMap[item.normalized_name]?.wh ?? 0;
+              const sc = invMap[item.normalized_name]?.sc ?? 0;
+              return {
+                ...item,
+                stock_wh: wh,
+                stock_sc: sc,
+                is_in_stock: (wh + sc) > 0 // Флаг наличия строго по филиалу
+              };
+            });
             setDocItems(enrichedItems);
             return;
           }
@@ -860,7 +894,7 @@ export default function App() {
                   <h3 className="font-normal text-slate-700 dark:text-slate-200 text-xs sm:text-sm truncate transition-colors duration-300">{doc.file_name}</h3>
                   
                   <div className="flex flex-wrap gap-x-2 text-[9px] pt-0.5">
-                    {!hasStock(doc) && doc.computedStatus === 'new' && doc.doc_type !== 'media' ? (
+                    {!doc.inStockInBranch && doc.computedStatus === 'new' && doc.doc_type !== 'media' ? (
                       <span className="text-amber-600 dark:text-amber-400 font-bold bg-amber-50 dark:bg-amber-950/30 px-1 rounded transition-colors duration-300">Нет в наличии</span>
                     ) : (
                       <div className="text-slate-400 dark:text-slate-500 flex flex-wrap gap-x-2">
@@ -1050,7 +1084,7 @@ export default function App() {
 
               <div className="p-2 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 flex items-center justify-end gap-1.5 shrink-0">
                 <button onClick={() => setSelectedDoc(null)} className="px-3 py-1.5 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-bold bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300">Закрыть</button>
-                {selectedDoc?.status === 'new' && ((currentTab === 'new' && promoSubTab === 'new' && hasStock(selectedDoc)) || (currentTab === 'gifts' && giftsSubTab === 'new')) && (
+                {selectedDoc?.status === 'new' && ((currentTab === 'new' && promoSubTab === 'new' && selectedDoc.inStockInBranch) || (currentTab === 'gifts' && giftsSubTab === 'new')) && (
                   <button onClick={() => setConfirmModal({ show: true, type: 'process', docId: selectedDoc.id })} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg shadow-xs">Оформить</button>
                 )}
                 {currentTab === 'completed' && (
