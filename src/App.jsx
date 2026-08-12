@@ -54,13 +54,19 @@ export default function App() {
   const [giftsSubTab, setGiftsSubTab] = useState('new'); 
   const [touchStart, setTouchStart] = useState(null);
   
-  // ИСПРАВЛЕНО: Убрано дублирующее значение "ALL" из списка отделов
   const departments = ["#Цифра 🟠", "#ЧТ 🟢", "#МБТ 🟡", "#КБТ 🔵", "#Другое"];
   
   const branches = [
     { id: 'rozybakieva', name: 'Алматы, Розыбакиева 275а' },
     { id: 'mart_village', name: 'Алматы, Mart Village' }
   ];
+
+  const getActiveBranch = () => {
+    if (user?.branch && user.branch !== 'ALL') {
+      return user.branch;
+    }
+    return selectedBranch || 'rozybakieva';
+  };
 
   useEffect(() => {
     if (selectedDoc) {
@@ -76,7 +82,6 @@ export default function App() {
     };
   }, [selectedDoc]);
 
-  // ИСПРАВЛЕНО: Гарантированная передача филиала безundefined значений
   useEffect(() => {
     if (currentTab !== 'statement') return;
     const trimmed = statementQuery.trim();
@@ -88,11 +93,7 @@ export default function App() {
     const delayDebounce = setTimeout(async () => {
       setStatementLoading(true);
       try {
-        // Чёткое определение текущего филиала пользователя
-        let activeBranch = user?.branch;
-        if (!activeBranch || activeBranch === 'ALL') {
-          activeBranch = selectedBranch || 'rozybakieva';
-        }
+        const activeBranch = getActiveBranch();
 
         const { data, error } = await supabase.rpc('search_inventory_with_prices', {
           search_query: trimmed,
@@ -101,7 +102,6 @@ export default function App() {
 
         if (error) {
           console.error("Ошибка Supabase RPC:", error);
-          // Запасной фоллбек: прямая выборка из таблицы inventory, если RPC заблокирован
           const { data: fallbackData } = await supabase
             .from('inventory')
             .select('id, raw_name, normalized_name, stock_warehouse, stock_showcase')
@@ -129,6 +129,7 @@ export default function App() {
     setPriceHistory([]);
     setHistoryLoading(true);
     try {
+      const activeBranch = getActiveBranch();
       const { data, error } = await supabase
         .from('document_items')
         .select(`
@@ -136,12 +137,18 @@ export default function App() {
           created_at, 
           documents:document_id(
             *,
-            processed_by:users!processed_by_iin(full_name),
-            completed_by:users!completed_by_iin(full_name),
+            document_branch_statuses!inner(
+              status,
+              processed_at,
+              completed_at,
+              processed_by:users!processed_by_iin(full_name),
+              completed_by:users!completed_by_iin(full_name)
+            ),
             document_items(price, is_in_stock, change_type, raw_name)
           )
         `)
         .eq('normalized_name', item.normalized_name)
+        .eq('documents.document_branch_statuses.branch', activeBranch)
         .order('created_at', { ascending: false });
         
       if (error) throw error;
@@ -167,16 +174,11 @@ export default function App() {
   }
 
   const initPushNotifications = async (currentUser) => {
-    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-      console.log('Push-уведомления не поддерживаются данным браузером');
-      return;
-    }
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
     try {
       const permission = await Notification.requestPermission();
-      if (permission !== 'granted') {
-        console.log('Пользователь отклонил запрос на уведомления');
-        return;
-      }
+      if (permission !== 'granted') return;
+      
       const registration = await navigator.serviceWorker.register('sw.js');
       let subscription = await registration.pushManager.getSubscription();
       if (subscription) {
@@ -192,7 +194,6 @@ export default function App() {
         .eq('iin', currentUser.iin);
 
       if (error) throw error;
-      console.log('✅ Новая Push-подписка успешно сохранена в Supabase в формате JSON!');
     } catch (err) {
       console.error('Ошибка при настройке веб-пушей:', err.message);
     }
@@ -237,17 +238,17 @@ export default function App() {
     return doc.document_items.some(item => item.is_in_stock === true);
   };
 
-  // ИСПРАВЛЕНО: Корректный перерасчет счетчиков вкладок с учетом филиала и остатков
   const updateTabCounters = async () => {
     if (!user) return;
     try {
-      let activeBranch = user?.branch;
-      if (!activeBranch || activeBranch === 'ALL') {
-        activeBranch = selectedBranch || 'rozybakieva';
-      }
+      const activeBranch = getActiveBranch();
 
-      // 1. Запрашиваем документы с элементами
-      let query = supabase.from('documents').select('id, status, dept, doc_type, period_end, document_items(normalized_name, is_in_stock)');
+      let query = supabase.from('documents').select(`
+        id, dept, doc_type, period_end, 
+        document_branch_statuses!inner(status, branch), 
+        document_items(normalized_name, is_in_stock)
+      `).eq('document_branch_statuses.branch', activeBranch);
+
       const userDepts = Array.isArray(user.dept) ? user.dept : (user.dept ? [user.dept] : []);
       const hasAllAccess = user.role === 'Директор' || user.role === 'Супервайзер' || user.role === 'Инфо-консультант' || userDepts.includes('ALL');
 
@@ -261,7 +262,6 @@ export default function App() {
       const { data: docsData, error } = await query;
       if (error || !docsData) return;
 
-      // 2. Собираем уникальные товары для проверки остатков конкретного филиала
       const allNormalizedNames = new Set();
       docsData.forEach(doc => {
         if (doc.document_items) {
@@ -271,7 +271,6 @@ export default function App() {
         }
       });
 
-      // 3. Запрашиваем остатки склада/витрины для выбранного филиала
       let branchStockMap = {};
       if (allNormalizedNames.size > 0) {
         const { data: invData } = await supabase
@@ -290,7 +289,6 @@ export default function App() {
         }
       }
 
-      // 4. Вспомогательная функция наличия товара ИМЕННО в текущем филиале
       const checkDocStockInBranch = (doc) => {
         if (!doc.document_items || doc.document_items.length === 0) return true;
         return doc.document_items.some(item => branchStockMap[item.normalized_name] === true || item.is_in_stock === true);
@@ -300,19 +298,24 @@ export default function App() {
       const counts = { new: 0, completed: 0, gifts: 0, archive: 0 };
 
       docsData.forEach(doc => {
+        const branchStatusObj = Array.isArray(doc.document_branch_statuses) 
+          ? doc.document_branch_statuses[0] 
+          : doc.document_branch_statuses;
+
+        const currentBranchStatus = branchStatusObj?.status || 'new';
         const inStockInBranch = checkDocStockInBranch(doc);
         if (doc.doc_type !== 'media' && !inStockInBranch) return;
 
-        let computedStatus = doc.status;
+        let computedStatus = currentBranchStatus;
         const isCorrection = doc.file_name ? doc.file_name.toLowerCase().includes('корректировк') : false;
 
         if (doc.period_end && doc.period_end < todayStr && !isCorrection) {
-          if (doc.status === 'new' && !inStockInBranch) computedStatus = 'archive';
-          else if (doc.status === 'processed') computedStatus = 'completed';
+          if (currentBranchStatus === 'new' && !inStockInBranch) computedStatus = 'archive';
+          else if (currentBranchStatus === 'processed') computedStatus = 'completed';
         }
 
         if (doc.doc_type === 'gift' || doc.doc_type === 'media') {
-          if (doc.status === 'new' && (doc.doc_type === 'media' || inStockInBranch)) {
+          if (currentBranchStatus === 'new' && (doc.doc_type === 'media' || inStockInBranch)) {
             counts.gifts++; 
           } else if (computedStatus === 'completed') {
             counts.completed++;
@@ -384,12 +387,19 @@ export default function App() {
     if (!user) return;
     setLoading(true);
     try {
+      const activeBranch = getActiveBranch();
+
       let query = supabase.from('documents').select(`
         *,
-        processed_by:users!processed_by_iin(full_name),
-        completed_by:users!completed_by_iin(full_name),
+        document_branch_statuses!inner(
+          status,
+          processed_at,
+          completed_at,
+          processed_by:users!processed_by_iin(full_name),
+          completed_by:users!completed_by_iin(full_name)
+        ),
         document_items(price, is_in_stock, change_type, raw_name)
-      `);
+      `).eq('document_branch_statuses.branch', activeBranch);
 
       const userDepts = Array.isArray(user.dept) ? user.dept : (user.dept ? [user.dept] : []);
       const hasAllAccess = user.role === 'Директор' || user.role === 'Супервайзер' || user.role === 'Инфо-консультант' || userDepts.includes('ALL');
@@ -428,14 +438,28 @@ export default function App() {
 
       const todayStr = new Date().toISOString().split('T')[0];
       let mapped = (data || []).map(doc => {
-        let s = doc.status;
+        const branchStatusObj = Array.isArray(doc.document_branch_statuses) 
+          ? doc.document_branch_statuses[0] 
+          : doc.document_branch_statuses;
+
+        const currentBranchStatus = branchStatusObj?.status || 'new';
+        let s = currentBranchStatus;
         const isCorrection = doc.file_name ? doc.file_name.toLowerCase().includes('корректировк') : false;
 
         if (doc.period_end && doc.period_end < todayStr && !isCorrection) {
-          if (doc.status === 'new' && !hasStock(doc)) s = 'archive';
-          else if (doc.status === 'processed') s = 'completed';
+          if (currentBranchStatus === 'new' && !hasStock(doc)) s = 'archive';
+          else if (currentBranchStatus === 'processed') s = 'completed';
         }
-        return { ...doc, computedStatus: s };
+
+        return { 
+          ...doc, 
+          computedStatus: s,
+          status: currentBranchStatus,
+          processed_by: branchStatusObj?.processed_by,
+          processed_at: branchStatusObj?.processed_at,
+          completed_by: branchStatusObj?.completed_by,
+          completed_at: branchStatusObj?.completed_at
+        };
       });
 
       let finalDocs = [];
@@ -477,10 +501,7 @@ export default function App() {
         const namesToFetch = itemsData.map(i => i.normalized_name).filter(Boolean);
         
         if (namesToFetch.length > 0) {
-          let targetBranch = user?.branch;
-          if (!targetBranch || targetBranch === 'ALL') {
-            targetBranch = selectedBranch || 'rozybakieva';
-          }
+          const targetBranch = getActiveBranch();
 
           const { data: invData, error: invError } = await supabase
             .from('inventory')
@@ -508,12 +529,14 @@ export default function App() {
         }
       }
       setDocItems(itemsData || []);
-    } catch (err) { console.error("Ошибка локальной подгрузки остатков:", err.message); }
+    } catch (err) { console.error("Ошибка подгрузки остатков:", err.message); }
   };
 
   const executeStatusChange = async () => {
     const { type, docId } = confirmModal;
+    const activeBranch = getActiveBranch();
     const updatePayload = {};
+
     if (type === 'process') {
       updatePayload.status = 'processed';
       updatePayload.processed_by_iin = user.iin;
@@ -523,12 +546,19 @@ export default function App() {
       updatePayload.completed_by_iin = user.iin;
       updatePayload.completed_at = new Date().toISOString();
     }
+
     try {
-      const { error } = await supabase.from('documents').update(updatePayload).eq('id', docId);
+      const { error } = await supabase
+        .from('document_branch_statuses')
+        .update(updatePayload)
+        .eq('document_id', docId)
+        .eq('branch', activeBranch);
+
       if (error) throw error;
       setConfirmModal({ show: false, type: '', docId: null });
       if (selectedDoc) setSelectedDoc(null);
       fetchDocuments();
+      updateTabCounters();
     } catch (err) { alert(err.message); }
   };
 
@@ -616,7 +646,6 @@ export default function App() {
       onTouchEnd={handleTouchEnd}
       className="w-full max-w-full overflow-hidden h-[100dvh] max-h-[100dvh] bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 flex flex-col select-none"
     >
-      {/* ================= ЗАКРЕПЛЕННАЯ СВЕРХУ ПАНЕЛЬ УПРАВЛЕНИЯ ================= */}
       <div className="w-full shrink-0 relative z-30 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-xs transition-colors duration-300">
         
         <header className="px-4 py-2.5 flex items-center justify-between gap-4 max-w-3xl mx-auto w-full">
@@ -633,7 +662,6 @@ export default function App() {
           </div>
           
           <div className="flex items-center gap-1.5">
-            {/* Выбор филиала только при user.branch === 'ALL' */}
             {user?.branch === 'ALL' && (
               <div className="flex items-center gap-1 bg-blue-50 dark:bg-slate-800 border border-blue-200 dark:border-slate-700 px-1.5 py-0.5 rounded-lg text-[10px]">
                 <select 
@@ -646,7 +674,6 @@ export default function App() {
               </div>
             )}
 
-            {/* Фильтр отделов для административных ролей */}
             {(user?.role === 'Директор' || user?.role === 'Супервайзер' || user?.role === 'Инфо-консультант') && (
               <div className="flex items-center gap-1 bg-amber-50 dark:bg-slate-800 border border-amber-200 dark:border-slate-700 px-1.5 py-0.5 rounded-lg text-[10px] transition-colors duration-500">
                 <IconAdmin />
@@ -755,7 +782,6 @@ export default function App() {
         </div>
       </div>
 
-      {/* ================= ЛЕНТА КАРТОЧЕК ДОКУМЕНТОВ ================= */}
       <main 
         key={currentTab} 
         className="p-4 flex-1 overflow-y-auto overscroll-y-contain max-w-3xl mx-auto w-full animate-fade-in"
@@ -861,7 +887,6 @@ export default function App() {
         )}
       </main>
 
-      {/* ================= МОДАЛЬНОЕ ОКНО СПЕЦИФИКАЦИИ ДОКУМЕНТА ================= */}
       {selectedDoc && (() => {
         const isMediaContent = selectedDoc.doc_type === 'media' || selectedDoc.file_name?.match(/\.(jpeg|jpg|gif|png|webp|pdf)$/i);
         
@@ -1037,7 +1062,6 @@ export default function App() {
         );
       })()}
 
-      {/* ================= ДИАЛОГ ПОДТВЕРЖДЕНИЯ ДЕЙСТВИЯ ================= */}
       {confirmModal.show && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
           <div className="bg-white dark:bg-slate-900 p-5 rounded-xl max-w-xs w-full shadow-2xl text-center border dark:border-slate-800">
@@ -1053,7 +1077,6 @@ export default function App() {
         </div>
       )}
 
-      {/* ================= МОДАЛЬНОЕ ОКНО ИСТОРИИ ЦЕН ТОВАРА ================= */}
       {selectedHistoryItem && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
           <div className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl max-w-md w-full max-h-[70vh] flex flex-col overflow-hidden border dark:border-slate-800 animate-in fade-in zoom-in-95 duration-150">
@@ -1078,6 +1101,11 @@ export default function App() {
                   {priceHistory.map((hist, idx) => {
                     const doc = hist.documents;
                     if (!doc) return null;
+
+                    const branchStatusObj = Array.isArray(doc.document_branch_statuses) 
+                      ? doc.document_branch_statuses[0] 
+                      : doc.document_branch_statuses;
+
                     return (
                       <div
                         key={idx}
@@ -1104,11 +1132,11 @@ export default function App() {
                           
                           <div className="flex flex-wrap gap-x-2 text-[9px] pt-0.5">
                             <div className="text-slate-400 dark:text-slate-500 flex flex-wrap gap-x-2">
-                              {doc.processed_by?.full_name && (
-                                <span>Оформил: {doc.processed_by.full_name} {doc.processed_at && `— ${formatCardDate(doc.processed_at)}`}</span>
+                              {branchStatusObj?.processed_by?.full_name && (
+                                <span>Оформил: {branchStatusObj.processed_by.full_name} {branchStatusObj.processed_at && `— ${formatCardDate(branchStatusObj.processed_at)}`}</span>
                               )}
-                              {doc.completed_by?.full_name && (
-                                <span>Закрыл: {doc.completed_by.full_name} {doc.completed_at && `— ${formatCardDate(doc.completed_at)}`}</span>
+                              {branchStatusObj?.completed_by?.full_name && (
+                                <span>Закрыл: {branchStatusObj.completed_by.full_name} {branchStatusObj.completed_at && `— ${formatCardDate(branchStatusObj.completed_at)}`}</span>
                               )}
                             </div>
                           </div>
