@@ -15,6 +15,8 @@ const IconStock = () => <svg className="w-4 h-4" fill="none" stroke="currentColo
 const IconAll = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 10h16M4 14h16M4 18h16"/></svg>;
 const IconFile = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>;
 const IconGift = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v13m0-13V6a2 2 0 112 2h-2zm0 0V6a2 2 0 10-2 2h2zm0 0H4v13a2 2 0 002 2h14a2 2 0 002-2V8h-8z"/></svg>;
+const IconCopy = () => <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>;
+const IconCheck = () => <svg className="w-3.5 h-3.5 text-green-500" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7"/></svg>;
 
 const tabOrder = ['new', 'completed', 'gifts', 'archive', 'statement'];
 
@@ -49,7 +51,7 @@ export default function App() {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [activeDocId, setActiveDocId] = useState(null);
   const [activeItemName, setActiveItemName] = useState(null);
-  const [copiedItemName, setCopiedItemName] = useState(null);
+  const [copiedId, setCopiedId] = useState(null);
 
   const [promoSubTab, setPromoSubTab] = useState('new'); 
   const [giftsSubTab, setGiftsSubTab] = useState('new'); 
@@ -69,14 +71,13 @@ export default function App() {
     return selectedBranch || 'rozybakieva';
   };
 
-  const handleCopyText = (e, text) => {
+  const copyToClipboard = (e, text, id) => {
     e.stopPropagation();
     if (!text) return;
-    navigator.clipboard.writeText(text);
-    setCopiedItemName(text);
-    setTimeout(() => {
-      setCopiedItemName(null);
-    }, 1500);
+    navigator.clipboard.writeText(text).then(() => {
+      setCopiedId(id);
+      setTimeout(() => setCopiedId(null), 1500);
+    }).catch(err => console.error("Ошибка копирования:", err));
   };
 
   useEffect(() => {
@@ -93,7 +94,7 @@ export default function App() {
     };
   }, [selectedDoc]);
 
-  // ПОИСК ПО ВЕДОМОСТИ С ПОЛУЧЕНИЕМ ЦЕНЫ ИЗ ПОСЛЕДНЕГО ДОКУМЕНТА
+  // Загрузка ведомости с гарантированным подтягиванием цены последнего поступившего документа
   useEffect(() => {
     if (currentTab !== 'statement') return;
     const trimmed = statementQuery.trim();
@@ -107,58 +108,66 @@ export default function App() {
       try {
         const activeBranch = getActiveBranch();
 
-        let rawResults = [];
-        const { data: rpcData, error: rpcError } = await supabase.rpc('search_inventory_with_prices', {
-          search_query: trimmed,
-          user_branch: activeBranch
-        });
+        // 1. Попытка через RPC
+        let rpcSuccess = false;
+        try {
+          const { data, error } = await supabase.rpc('search_inventory_with_prices', {
+            search_query: trimmed,
+            user_branch: activeBranch
+          });
+          if (!error && data && data.length > 0) {
+            setStatementItems(data);
+            rpcSuccess = true;
+          }
+        } catch (e) {
+          rpcSuccess = false;
+        }
 
-        if (!rpcError && rpcData && rpcData.length > 0) {
-          rawResults = rpcData;
-        } else {
-          const { data: fallbackData } = await supabase
+        // 2. Если RPC не дал результатов или цен нет, делаем точный выбор из inventory + поиск последней цены
+        if (!rpcSuccess) {
+          const { data: invData, error: invError } = await supabase
             .from('inventory')
             .select('id, raw_name, normalized_name, stock_warehouse, stock_showcase')
             .ilike('raw_name', `%${trimmed}%`)
             .eq('branch', activeBranch)
-            .limit(100);
+            .limit(80);
 
-          rawResults = (fallbackData || []).map(item => ({ ...item, latest_price: null }));
-        }
+          if (invError) throw invError;
 
-        // Подгружаем актуальные цены из самых последних созданных документов
-        const missingPriceNames = rawResults
-          .filter(i => !i.latest_price || i.latest_price === '—')
-          .map(i => i.normalized_name)
-          .filter(Boolean);
+          if (invData && invData.length > 0) {
+            const normNames = invData.map(i => i.normalized_name).filter(Boolean);
 
-        if (missingPriceNames.length > 0) {
-          const { data: priceDocs } = await supabase
-            .from('document_items')
-            .select('normalized_name, price, created_at')
-            .in('normalized_name', missingPriceNames)
-            .order('created_at', { ascending: false });
+            // Ищем последнюю поступившую цену по каждому товару
+            let priceMap = {};
+            if (normNames.length > 0) {
+              const { data: priceDocs } = await supabase
+                .from('document_items')
+                .select('normalized_name, price, created_at')
+                .in('normalized_name', normNames)
+                .order('created_at', { ascending: false });
 
-          if (priceDocs && priceDocs.length > 0) {
-            const latestPriceMap = {};
-            priceDocs.forEach(pd => {
-              if (pd.price && !latestPriceMap[pd.normalized_name]) {
-                latestPriceMap[pd.normalized_name] = pd.price;
+              if (priceDocs) {
+                priceDocs.forEach(p => {
+                  if (p.normalized_name && !priceMap[p.normalized_name] && p.price) {
+                    priceMap[p.normalized_name] = p.price;
+                  }
+                });
               }
-            });
+            }
 
-            rawResults = rawResults.map(item => ({
+            const merged = invData.map(item => ({
               ...item,
-              latest_price: item.latest_price && item.latest_price !== '—' 
-                ? item.latest_price 
-                : (latestPriceMap[item.normalized_name] || '—')
+              latest_price: priceMap[item.normalized_name] || '—'
             }));
+
+            setStatementItems(merged);
+          } else {
+            setStatementItems([]);
           }
         }
-
-        setStatementItems(rawResults);
       } catch (err) {
         console.error("Ошибка поиска по ведомости:", err.message);
+        setStatementItems([]);
       } finally {
         setStatementLoading(false);
       }
@@ -277,14 +286,13 @@ export default function App() {
     return () => window.removeEventListener('focus', handleWindowFocus);
   }, [currentTab, selectedDept, searchQuery, dateFilter, monthFilter, promoSubTab, giftsSubTab, user, selectedBranch]);
 
-  // Проверка наличия документа строго для текущего филиала
   const updateTabCounters = async () => {
     if (!user) return;
     try {
       const activeBranch = getActiveBranch();
 
       let query = supabase.from('documents').select(`
-        id, dept, doc_type, period_end, 
+        id, dept, doc_type, file_name, period_end, 
         document_branch_statuses!inner(status, branch), 
         document_items(normalized_name)
       `).eq('document_branch_statuses.branch', activeBranch);
@@ -418,11 +426,6 @@ export default function App() {
     } catch (err) { setAuthError('Ошибка: ' + err.message); } finally { setAuthLoading(false); }
   };
 
-  const handleLogout = () => {
-    setUser(null);
-    localStorage.removeItem('promo_app_user');
-  };
-
   const fetchDocuments = async () => {
     if (!user) return;
     setLoading(true);
@@ -476,34 +479,35 @@ export default function App() {
       const { data, error } = await query.order('created_at', { ascending: false });
       if (error) throw error;
 
-      // Получаем остатки филиала для точного расчета наличия документа
-      const allItemNames = new Set();
-      (data || []).forEach(d => {
-        if (d.document_items) {
-          d.document_items.forEach(i => {
-            if (i.normalized_name) allItemNames.add(i.normalized_name);
+      // Получаем остатки конкретного подразделения для фильтрации карточек
+      const allNormalizedNames = new Set();
+      (data || []).forEach(doc => {
+        if (doc.document_items) {
+          doc.document_items.forEach(item => {
+            if (item.normalized_name) allNormalizedNames.add(item.normalized_name);
           });
         }
       });
 
       let branchStockMap = {};
-      if (allItemNames.size > 0) {
+      if (allNormalizedNames.size > 0) {
         const { data: invData } = await supabase
           .from('inventory')
           .select('normalized_name, stock_warehouse, stock_showcase')
-          .in('normalized_name', Array.from(allItemNames))
+          .in('normalized_name', Array.from(allNormalizedNames))
           .eq('branch', activeBranch);
 
         if (invData) {
           invData.forEach(inv => {
-            if ((inv.stock_warehouse || 0) + (inv.stock_showcase || 0) > 0) {
+            const totalStock = (inv.stock_warehouse || 0) + (inv.stock_showcase || 0);
+            if (totalStock > 0) {
               branchStockMap[inv.normalized_name] = true;
             }
           });
         }
       }
 
-      const checkDocStockInBranch = (doc) => {
+      const checkDocStock = (doc) => {
         if (!doc.document_items || doc.document_items.length === 0) return true;
         return doc.document_items.some(item => branchStockMap[item.normalized_name] === true);
       };
@@ -515,20 +519,20 @@ export default function App() {
           : doc.document_branch_statuses;
 
         const currentBranchStatus = branchStatusObj?.status || 'new';
-        const docHasStock = checkDocStockInBranch(doc);
+        const inStockInBranch = checkDocStock(doc);
         let s = currentBranchStatus;
         const isCorrection = doc.file_name ? doc.file_name.toLowerCase().includes('корректировк') : false;
 
         if (doc.period_end && doc.period_end < todayStr && !isCorrection) {
-          if (currentBranchStatus === 'new' && !docHasStock) s = 'archive';
+          if (currentBranchStatus === 'new' && !inStockInBranch) s = 'archive';
           else if (currentBranchStatus === 'processed') s = 'completed';
         }
 
         return { 
           ...doc, 
+          hasStockInBranch: inStockInBranch,
           computedStatus: s,
           status: currentBranchStatus,
-          branchHasStock: docHasStock,
           processed_by: branchStatusObj?.processed_by,
           processed_at: branchStatusObj?.processed_at,
           completed_by: branchStatusObj?.completed_by,
@@ -539,22 +543,22 @@ export default function App() {
       let finalDocs = [];
       if (currentTab === 'new') {
         if (promoSubTab === 'new') {
-          finalDocs = mapped.filter(doc => doc.computedStatus === 'new' && doc.branchHasStock && doc.doc_type !== 'gift' && doc.doc_type !== 'media');
+          finalDocs = mapped.filter(doc => doc.computedStatus === 'new' && doc.hasStockInBranch && doc.doc_type !== 'gift' && doc.doc_type !== 'media');
         } else {
-          finalDocs = mapped.filter(doc => ((doc.computedStatus === 'processed') || (doc.computedStatus === 'new' && !doc.branchHasStock)) && doc.doc_type !== 'gift' && doc.doc_type !== 'media');
+          finalDocs = mapped.filter(doc => ((doc.computedStatus === 'processed') || (doc.computedStatus === 'new' && !doc.hasStockInBranch)) && doc.doc_type !== 'gift' && doc.doc_type !== 'media');
         }
       } else if (currentTab === 'gifts') {
         if (giftsSubTab === 'new') {
-          finalDocs = mapped.filter(doc => (doc.doc_type === 'media' || (doc.doc_type === 'gift' && doc.branchHasStock)) && doc.status === 'new');
+          finalDocs = mapped.filter(doc => (doc.doc_type === 'media' || (doc.doc_type === 'gift' && doc.hasStockInBranch)) && doc.status === 'new');
         } else {
-          finalDocs = mapped.filter(doc => (doc.doc_type === 'media' || doc.doc_type === 'gift') && (doc.status === 'processed' || (doc.doc_type === 'gift' && !doc.branchHasStock && doc.status === 'new')));
+          finalDocs = mapped.filter(doc => (doc.doc_type === 'media' || doc.doc_type === 'gift') && (doc.status === 'processed' || (doc.doc_type === 'gift' && !doc.hasStockInBranch && doc.status === 'new')));
         }
       } else if (currentTab === 'completed') {
         finalDocs = mapped.filter(doc => doc.computedStatus === 'completed');
       } else if (currentTab === 'archive') {
         finalDocs = mapped.filter(doc => 
           (doc.computedStatus === 'archive') || 
-          (doc.period_end && doc.period_end < todayStr && !doc.branchHasStock && doc.doc_type !== 'media')
+          (doc.period_end && doc.period_end < todayStr && !doc.hasStockInBranch && doc.doc_type !== 'media')
         );
       }
 
@@ -562,13 +566,17 @@ export default function App() {
     } catch (err) { console.error(err.message); } finally { setLoading(false); }
   };
 
+  // Детали документа: расчёт is_in_stock строго для выбранного филиала пользователя
   const openDocDetails = async (doc) => {
     setActiveDocId(doc.id);
     setSelectedDoc(doc);
     setModalTab('in_stock');
     setItemSearch('');
     try {
-      const { data: itemsData, error: itemsError } = await supabase.from('document_items').select('*').eq('document_id', doc.id);
+      const { data: itemsData, error: itemsError } = await supabase
+        .from('document_items')
+        .select('*')
+        .eq('document_id', doc.id);
       if (itemsError) throw itemsError;
 
       if (itemsData && itemsData.length > 0) {
@@ -593,6 +601,7 @@ export default function App() {
           }
         }
 
+        // Пересчитываем is_in_stock именно по локальному наличию на складе/витрине подразделения
         const enrichedItems = itemsData.map(item => {
           const wh = invMap[item.normalized_name]?.wh ?? 0;
           const sc = invMap[item.normalized_name]?.sc ?? 0;
@@ -600,9 +609,10 @@ export default function App() {
             ...item,
             stock_wh: wh,
             stock_sc: sc,
-            branch_in_stock: (wh + sc) > 0
+            is_in_stock: (wh + sc) > 0
           };
         });
+
         setDocItems(enrichedItems);
         return;
       }
@@ -663,7 +673,7 @@ export default function App() {
 
   const formatDisplayPrice = (price, docType) => {
     if (!price) return '—';
-    if (docType === 'revaluation' || (typeof price === 'string' && price.includes('₸'))) {
+    if (docType === 'revaluation' || String(price).includes('₸')) {
       let clean = String(price).replace(/[₸\s]/g, '').trim();
       if (!isNaN(clean) && clean !== '') {
         return Number(clean).toLocaleString('ru-RU');
@@ -684,7 +694,7 @@ export default function App() {
 
   const filteredItems = docItems.filter(item => {
     const matchesText = item.raw_name ? item.raw_name.toLowerCase().includes(itemSearch.toLowerCase()) : false;
-    if (modalTab === 'in_stock') return matchesText && (item.branch_in_stock === true);
+    if (modalTab === 'in_stock') return matchesText && item.is_in_stock;
     return matchesText;
   });
 
@@ -726,38 +736,35 @@ export default function App() {
     >
       <div className="w-full shrink-0 relative z-30 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-xs transition-colors duration-300">
         
-        {/* ХЕДЕР С ГИБКИМ РАСПОЛОЖЕНИЕМ КНОПОК БЕЗ ПЕРЕКРЫТИЯ */}
-        <header className="px-4 py-2 flex flex-wrap items-center justify-between gap-2 max-w-3xl mx-auto w-full">
+        <header className="px-4 py-2.5 flex items-center justify-between gap-3 max-w-3xl mx-auto w-full flex-wrap sm:flex-nowrap">
           <div className="flex items-center gap-2 min-w-0">
             <div className="bg-blue-600 text-white w-6 h-6 rounded-md flex items-center justify-center font-bold text-xs shrink-0">PM</div>
             <div className="min-w-0">
               <h1 className="text-xs font-bold text-slate-900 dark:text-slate-100 leading-none truncate">Мониторинг Промо</h1>
               <div className="flex items-center gap-1 text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">
-                <span className="truncate max-w-[100px] sm:max-w-[140px]">{user?.full_name}</span>
+                <span className="truncate">{user?.full_name}</span>
                 <span>•</span>
                 <span className="truncate max-w-[120px] sm:max-w-[160px]">{renderUserDepts(user?.dept)}</span>
               </div>
             </div>
           </div>
           
-          <div className="flex items-center gap-1.5 flex-wrap ml-auto">
-            {/* Выбор филиала для ALL пользователей */}
+          {/* ИСПРАВЛЕНО: Кнопки выбора филиала и отделов расположены рядом без перекрытия */}
+          <div className="flex items-center gap-1.5 flex-wrap shrink-0">
             {user?.branch === 'ALL' && (
-              <div className="flex items-center gap-1 bg-blue-50 dark:bg-slate-800 border border-blue-200 dark:border-slate-700 px-2 py-1 rounded-lg text-[10px] shrink-0">
-                <span className="text-blue-600 dark:text-blue-400 font-bold text-[9px]">Филиал:</span>
+              <div className="flex items-center gap-1 bg-blue-50 dark:bg-slate-800 border border-blue-200 dark:border-slate-700 px-2 py-1 rounded-lg text-[10px]">
                 <select 
                   className="bg-transparent border-none font-bold text-blue-700 dark:text-blue-300 outline-none p-0 text-[10px] cursor-pointer" 
                   value={selectedBranch || 'rozybakieva'} 
                   onChange={e => setSelectedBranch(e.target.value)}
                 >
-                  {branches.map(b => <option key={b.id} value={b.id}>{b.name.split(',')[1] || b.name}</option>)}
+                  {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
                 </select>
               </div>
             )}
 
-            {/* Выбор отделов */}
-            {(user?.role === 'Директор' || user?.role === 'Супервайзер' || user?.role === 'Инфо-консультант' || (Array.isArray(user?.dept) && user?.dept.includes('ALL'))) && (
-              <div className="flex items-center gap-1 bg-amber-50 dark:bg-slate-800 border border-amber-200 dark:border-slate-700 px-2 py-1 rounded-lg text-[10px] shrink-0">
+            {(user?.role === 'Директор' || user?.role === 'Супервайзер' || user?.role === 'Инфо-консультант') && (
+              <div className="flex items-center gap-1 bg-amber-50 dark:bg-slate-800 border border-amber-200 dark:border-slate-700 px-2 py-1 rounded-lg text-[10px]">
                 <IconAdmin />
                 <select 
                   className="bg-transparent border-none font-bold text-slate-700 dark:text-slate-200 outline-none p-0 text-[10px] cursor-pointer" 
@@ -864,6 +871,7 @@ export default function App() {
         </div>
       </div>
 
+      {/* ================= ЛЕНТА КАРТОЧЕК ДОКУМЕНТОВ ================= */}
       <main 
         key={currentTab} 
         className="p-4 flex-1 overflow-y-auto overscroll-y-contain max-w-3xl mx-auto w-full animate-fade-in"
@@ -871,10 +879,10 @@ export default function App() {
         {currentTab === 'statement' ? (
           <div className="space-y-3 pb-4 pt-1.5">
             {statementLoading ? (
-              <div className="text-center py-10 text-slate-400 font-medium text-xs tracking-wider animate-pulse">ПОИСК СОВПАДЕНИЙ И ЦЕН...</div>
+              <div className="text-center py-10 text-slate-400 font-medium text-xs tracking-wider animate-pulse">ПОИСК СОВПАДЕНИЙ...</div>
             ) : statementItems.length === 0 ? (
               <div className="text-center py-8 bg-white dark:bg-slate-900 border dark:border-slate-800 rounded-xl text-xs text-slate-400 font-medium">
-                {statementQuery.trim() ? 'Ничего не найдено' : 'Введите наименование товара в верхнюю строку поиска для отображения остатков и цен'}
+                {statementQuery.trim() ? 'Ничего не найдено' : 'Введите наименование товара в верхнюю строку поиска для отображения остатков'}
               </div>
             ) : (
               <div className="w-full overflow-hidden border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-xl shadow-2xs">
@@ -884,7 +892,7 @@ export default function App() {
                       <th className="p-2.5 text-left">Номенклатура</th>
                       <th className="p-1 text-center w-[48px]">Склад</th>
                       <th className="p-1 text-center w-[48px]">Витр.</th>
-                      <th className="p-2.5 text-right w-[78px]">Цена</th>
+                      <th className="p-2.5 text-right w-[75px]">Цена</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -899,24 +907,21 @@ export default function App() {
                         }`}
                       >
                         <td className="p-2.5 text-left font-normal text-slate-700 dark:text-slate-300 break-words whitespace-normal align-middle">
-                          <div className="flex items-start gap-1.5 justify-between">
-                            <span>{item.raw_name}</span>
+                          <div className="flex items-center gap-1.5">
+                            <span className="flex-1">{item.raw_name}</span>
                             <button
-                              title="Копировать наименование"
-                              onClick={(e) => handleCopyText(e, item.raw_name)}
-                              className="shrink-0 p-1 mt-0.5 rounded bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 transition"
+                              type="button"
+                              title="Копировать название"
+                              onClick={(e) => copyToClipboard(e, item.raw_name, `stmt_${item.id}`)}
+                              className="p-1 text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 shrink-0 transition"
                             >
-                              {copiedItemName === item.raw_name ? (
-                                <span className="text-[9px] font-bold text-green-600 dark:text-green-400">✓</span>
-                              ) : (
-                                <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
-                              )}
+                              {copiedId === `stmt_${item.id}` ? <IconCheck /> : <IconCopy />}
                             </button>
                           </div>
                         </td>
                         <td className="p-1 text-center font-bold text-blue-600 dark:text-blue-400 align-middle">{item.stock_warehouse}</td>
                         <td className="p-1 text-center font-bold text-amber-600 dark:text-amber-400 align-middle">{item.stock_showcase}</td>
-                        <td className="p-2.5 text-right font-semibold text-slate-900 dark:text-slate-100 align-middle">
+                        <td className="p-2.5 text-right font-normal text-slate-900 dark:text-slate-100 align-middle">
                           {formatDisplayPrice(item.latest_price)}
                         </td>
                       </tr>
@@ -957,7 +962,7 @@ export default function App() {
                   <h3 className="font-normal text-slate-700 dark:text-slate-200 text-xs sm:text-sm truncate transition-colors duration-300">{doc.file_name}</h3>
                   
                   <div className="flex flex-wrap gap-x-2 text-[9px] pt-0.5">
-                    {!doc.branchHasStock && doc.computedStatus === 'new' && doc.doc_type !== 'media' ? (
+                    {!doc.hasStockInBranch && doc.computedStatus === 'new' && doc.doc_type !== 'media' ? (
                       <span className="text-amber-600 dark:text-amber-400 font-bold bg-amber-50 dark:bg-amber-950/30 px-1 rounded transition-colors duration-300">Нет в наличии</span>
                     ) : (
                       <div className="text-slate-400 dark:text-slate-500 flex flex-wrap gap-x-2">
@@ -984,7 +989,7 @@ export default function App() {
         )}
       </main>
 
-      {/* МОДАЛЬНОЕ ОКНО ДОКУМЕНТА */}
+      {/* ================= МОДАЛЬНОЕ ОКНО СПЕЦИФИКАЦИИ ДОКУМЕНТА ================= */}
       {selectedDoc && (() => {
         const isMediaContent = selectedDoc.doc_type === 'media' || selectedDoc.file_name?.match(/\.(jpeg|jpg|gif|png|webp|pdf)$/i);
         
@@ -1012,7 +1017,7 @@ export default function App() {
                 <div className="p-1 bg-slate-50 dark:bg-slate-950/40 border-b dark:border-slate-800 shrink-0">
                   <div className="grid grid-cols-3 bg-slate-200/60 dark:bg-slate-800/60 p-0.5 rounded-lg text-slate-500 font-medium w-full">
                     <button onClick={() => setModalTab('in_stock')} className={`flex items-center justify-center gap-1 py-1 text-[10px] sm:text-xs rounded-md transition-all ${modalTab === 'in_stock' ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-2xs' : ''}`}>
-                      <IconStock /> В наличии ({docItems.filter(i => i.branch_in_stock).length})
+                      <IconStock /> В наличии ({docItems.filter(i => i.is_in_stock).length})
                     </button>
                     <button onClick={() => setModalTab('all')} className={`flex items-center justify-center gap-1 py-1 text-[10px] sm:text-xs rounded-md transition-all ${modalTab === 'all' ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-2xs' : ''}`}>
                       <IconAll /> Все ({docItems.length})
@@ -1111,7 +1116,7 @@ export default function App() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                        {filteredItems.slice(0, 80).map(item => (
+                        {filteredItems.slice(0, 100).map(item => (
                           <tr 
                             key={item.id} 
                             onClick={() => openPriceHistory({ normalized_name: item.normalized_name, raw_name: item.raw_name })} 
@@ -1133,18 +1138,15 @@ export default function App() {
                               </div>
                             </td>
                             <td className="p-2 font-normal text-slate-700 dark:text-slate-300 break-words whitespace-normal align-middle">
-                              <div className="flex items-start justify-between gap-1.5">
-                                <span>{item.raw_name}</span>
+                              <div className="flex items-center gap-1.5">
+                                <span className="flex-1">{item.raw_name}</span>
                                 <button
-                                  title="Копировать наименование"
-                                  onClick={(e) => handleCopyText(e, item.raw_name)}
-                                  className="shrink-0 p-1 mt-0.5 rounded bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 transition"
+                                  type="button"
+                                  title="Копировать название"
+                                  onClick={(e) => copyToClipboard(e, item.raw_name, `doc_${item.id}`)}
+                                  className="p-1 text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 shrink-0 transition"
                                 >
-                                  {copiedItemName === item.raw_name ? (
-                                    <span className="text-[9px] font-bold text-green-600 dark:text-green-400">✓</span>
-                                  ) : (
-                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
-                                  )}
+                                  {copiedId === `doc_${item.id}` ? <IconCheck /> : <IconCopy />}
                                 </button>
                               </div>
                             </td>
@@ -1161,7 +1163,7 @@ export default function App() {
 
               <div className="p-2 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 flex items-center justify-end gap-1.5 shrink-0">
                 <button onClick={() => setSelectedDoc(null)} className="px-3 py-1.5 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-bold bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300">Закрыть</button>
-                {selectedDoc?.status === 'new' && ((currentTab === 'new' && promoSubTab === 'new' && selectedDoc?.branchHasStock) || (currentTab === 'gifts' && giftsSubTab === 'new')) && (
+                {selectedDoc?.status === 'new' && ((currentTab === 'new' && promoSubTab === 'new' && selectedDoc.hasStockInBranch) || (currentTab === 'gifts' && giftsSubTab === 'new')) && (
                   <button onClick={() => setConfirmModal({ show: true, type: 'process', docId: selectedDoc.id })} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg shadow-xs">Оформить</button>
                 )}
                 {currentTab === 'completed' && (
