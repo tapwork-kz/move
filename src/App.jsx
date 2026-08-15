@@ -75,14 +75,13 @@ export default function App() {
   // Проверка, является ли документ корректировкой
   const isDocCorrection = (doc) => {
     const text = `${doc?.file_name || ''} ${doc?.promo_number || ''}`.toLowerCase();
-    return text.includes('корректировк') || text.includes('корр.') || text.includes('корр ');
+    return text.includes('корректировк') || text.includes('корр.') || text.includes('корр ') || text.includes('коррекция');
   };
 
   // Интеллектуальное извлечение чистого номера акции без мусора и слова "ЗАПУСК"
   const getPromoNumber = (doc) => {
     let raw = String(doc?.promo_number || '').trim();
 
-    // Очищаем слово "ЗАПУСК" и мусорные префиксы
     raw = raw
       .replace(/запуск\s*[-_:]?\s*/gi, '')
       .replace(/акция\s*[-_:]?\s*/gi, '')
@@ -90,16 +89,13 @@ export default function App() {
       .trim();
 
     if (raw && raw !== 'null' && raw !== 'undefined' && raw !== '') {
-      // Убираем возможные дубликаты вида "12345 12345" или "№123 №123"
-      const parts = raw.split(/\s+/).filter(Boolean);
-      let cleanNum = parts[0] || raw;
-      cleanNum = cleanNum.replace(/^№+/, '');
-      return `№${cleanNum}`;
+      const matchNum = raw.match(/[A-Za-z0-9\-\/]+/);
+      if (matchNum) {
+        return `№${matchNum[0].replace(/^№+/, '')}`;
+      }
     }
 
-    const fileName = doc?.file_name || '';
-    
-    // Ищем номер в названии файла, игнорируя слово ЗАПУСК
+    const fileName = String(doc?.file_name || '');
     const cleanedFileName = fileName.replace(/запуск\s*[-_:]?\s*/gi, '');
 
     const matchNo = cleanedFileName.match(/(?:№|#|промо\s*№?|акция\s*№?)\s*([A-Za-z0-9\-\/]+)/i);
@@ -114,11 +110,15 @@ export default function App() {
     return 'АКЦИЯ';
   };
 
-  // Безопасная проверка соответствия отдела пользователя
+  // Безопасная проверка соответствия отдела пользователя (без падений из-за эмодзи)
   const matchesUserDept = (docDept, currentUser, filterDept) => {
+    const docD = String(docDept || '').toLowerCase();
+    
     if (filterDept) {
-      return docDept === filterDept;
+      const cleanFilter = String(filterDept).replace(/[#🟠🟢🟡🔵\s]/g, '').trim().toLowerCase();
+      return cleanFilter ? docD.includes(cleanFilter) : true;
     }
+    
     if (!currentUser) return true;
     const hasAllAccess = currentUser.role === 'Директор' || 
                          currentUser.role === 'Супервайзер' || 
@@ -131,10 +131,8 @@ export default function App() {
     const userDepts = Array.isArray(currentUser.dept) ? currentUser.dept : (currentUser.dept ? [currentUser.dept] : []);
     if (userDepts.length === 0) return true;
 
-    // Проверяем совпадение по подстроке отдела или "Другое"
-    const docD = String(docDept || '').toLowerCase();
     return userDepts.some(d => {
-      const clean = String(d).replace(/[#🟠🟢🟡🔵]/g, '').trim().toLowerCase();
+      const clean = String(d).replace(/[#🟠🟢🟡🔵\s]/g, '').trim().toLowerCase();
       return clean && docD.includes(clean);
     }) || docD.includes('другое');
   };
@@ -398,7 +396,6 @@ export default function App() {
 
       const checkDocStockInBranch = (doc) => {
         if (!doc.document_items || doc.document_items.length === 0) return true;
-        // Считаем в наличии, если есть остаток в филиале ИЛИ флаг в документе
         return doc.document_items.some(item => {
           const key = item.normalized_name?.trim().toLowerCase();
           return (key && branchStockMap[key] === true) || item.is_in_stock === true;
@@ -591,7 +588,6 @@ export default function App() {
       let finalDocs = [];
       if (currentTab === 'new') {
         if (promoSubTab === 'new') {
-          // Показываем все новые документы текущего подразделения
           finalDocs = mapped.filter(doc => doc.computedStatus === 'new' && doc.doc_type !== 'gift' && doc.doc_type !== 'media');
         } else {
           finalDocs = mapped.filter(doc => doc.computedStatus === 'processed' && doc.doc_type !== 'gift' && doc.doc_type !== 'media');
@@ -1185,7 +1181,8 @@ export default function App() {
           <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-40 flex items-center justify-center p-3 pb-8 sm:p-4 transition-opacity duration-300 ease-out">
             <div className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl max-w-7xl w-full h-[88vh] flex flex-col overflow-hidden border dark:border-slate-800 transition-[transform,opacity] duration-300 cubic-bezier(0.34,1.56,0.64,1) will-change-transform scale-100 animate-in fade-in zoom-in-95">
               
-              <div className="min-w-0 flex-1 pr-3">
+              <div className="p-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 flex items-center justify-between transition-colors duration-300">
+                <div className="min-w-0 flex-1 pr-3">
                   <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border uppercase tracking-wider ${
                     isDocCorrection(selectedDoc)
                       ? 'bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-500'
@@ -1331,7 +1328,7 @@ export default function App() {
                                   onClick={(e) => copyToClipboard(e, item.raw_name, `doc_${item.id}`)}
                                   className="p-1 text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 shrink-0 transition"
                                 >
-                                  {copiedId === `doc_${item.id}` ? <IconCheck /> : <IconCopy />}
+                              {copiedId === `doc_${item.id}` ? <IconCheck /> : <IconCopy />}
                                 </button>
                               </div>
                             </td>
