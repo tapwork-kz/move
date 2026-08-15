@@ -285,18 +285,17 @@ export default function App() {
     return () => window.removeEventListener('focus', handleWindowFocus);
   }, [currentTab, selectedDept, searchQuery, dateFilter, monthFilter, promoSubTab, giftsSubTab, user, selectedBranch]);
 
-  // Полностью изолированный расчет бейджей/счетчиков по подразделениям и БД inventory
-  // Полностью автономный пересчет бейджей счетчиков строго по document_branch_statuses и остаткам подразделения
+  // Точный подсчет бейджей-счетчиков, полностью идентичный логике отображения во вкладках
   const updateTabCounters = async () => {
     if (!user) return;
     try {
       const activeBranch = getActiveBranch();
 
-      // 1. Запрашиваем документы со статусом строго для текущего филиала
+      // 1. Запрашиваем все актуальные документы с привязкой к филиалу
       let query = supabase.from('documents').select(`
         id, dept, doc_type, file_name, period_end, 
         document_branch_statuses!inner(status, branch), 
-        document_items(normalized_name)
+        document_items(normalized_name, is_in_stock)
       `).eq('document_branch_statuses.branch', activeBranch);
 
       const userDepts = Array.isArray(user.dept) ? user.dept : (user.dept ? [user.dept] : []);
@@ -312,7 +311,7 @@ export default function App() {
       const { data: docsData, error } = await query;
       if (error || !docsData) return;
 
-      // 2. Собираем уникальные номенклатуры для проверки остатков в текущем филиале
+      // 2. Сбор названий товаров
       const allNormalizedNames = new Set();
       docsData.forEach(doc => {
         if (doc.document_items) {
@@ -322,72 +321,76 @@ export default function App() {
         }
       });
 
-      // 3. Получаем реальные остатки (склад + витрина) строго для активного филиала
+      // 3. Получение реальных остатков для текущего подразделения
       let branchStockMap = {};
       if (allNormalizedNames.size > 0) {
-        const { data: invData } = await supabase
-          .from('inventory')
-          .select('normalized_name, stock_warehouse, stock_showcase')
-          .in('normalized_name', Array.from(allNormalizedNames))
-          .eq('branch', activeBranch);
+        const nameChunks = Array.from(allNormalizedNames);
+        // Разбиваем на чанки по 200, если позиций очень много
+        for (let i = 0; i < nameChunks.length; i += 200) {
+          const chunk = nameChunks.slice(i, i + 200);
+          const { data: invData } = await supabase
+            .from('inventory')
+            .select('normalized_name, stock_warehouse, stock_showcase')
+            .in('normalized_name', chunk)
+            .eq('branch', activeBranch);
 
-        if (invData) {
-          invData.forEach(inv => {
-            const totalStock = (inv.stock_warehouse || 0) + (inv.stock_showcase || 0);
-            if (totalStock > 0) {
-              branchStockMap[inv.normalized_name] = true;
-            }
-          });
+          if (invData) {
+            invData.forEach(inv => {
+              const total = (inv.stock_warehouse || 0) + (inv.stock_showcase || 0);
+              if (total > 0) {
+                branchStockMap[inv.normalized_name] = true;
+              }
+            });
+          }
         }
       }
 
-      // Проверка наличия позиций документа в текущей точке
-      const checkDocStockInBranch = (doc) => {
+      // Функция проверки наличия, в точности как во fetchDocuments
+      const checkDocStock = (doc) => {
         if (!doc.document_items || doc.document_items.length === 0) return true;
-        return doc.document_items.some(item => branchStockMap[item.normalized_name] === true);
+        return doc.document_items.some(item => branchStockMap[item.normalized_name] === true || item.is_in_stock === true);
       };
 
       const todayStr = new Date().toISOString().split('T')[0];
       const counts = { new: 0, completed: 0, gifts: 0, archive: 0 };
 
-      // 4. Подсчет бейджей с привязкой исключительно к статусу подразделения
+      // 4. Подсчет строго по тем же условиям, что и карточки в ленте
       docsData.forEach(doc => {
         const branchStatusObj = Array.isArray(doc.document_branch_statuses) 
           ? doc.document_branch_statuses[0] 
           : doc.document_branch_statuses;
 
-        // Статус берется исключительно из таблицы статусов подразделения
-        const branchStatus = branchStatusObj?.status || 'new';
-        const inStock = checkDocStockInBranch(doc);
-        const isMedia = doc.doc_type === 'media';
-        const isGift = doc.doc_type === 'gift';
+        const currentBranchStatus = branchStatusObj?.status || 'new';
+        const inStockInBranch = checkDocStock(doc);
+        let s = currentBranchStatus;
         const isCorrection = doc.file_name ? doc.file_name.toLowerCase().includes('корректировк') : false;
 
-        let computedStatus = branchStatus;
         if (doc.period_end && doc.period_end < todayStr && !isCorrection) {
-          if (branchStatus === 'new' && !inStock) computedStatus = 'archive';
-          else if (branchStatus === 'processed') computedStatus = 'completed';
+          if (currentBranchStatus === 'new' && !inStockInBranch) s = 'archive';
+          else if (currentBranchStatus === 'processed') s = 'completed';
         }
 
-        // Подарки и медиа-контент
-        if (isGift || isMedia) {
-          if (branchStatus === 'new' && (isMedia || inStock)) {
-            counts.gifts++;
-          } else if (computedStatus === 'completed') {
-            counts.completed++;
-          } else if (computedStatus === 'archive' || (doc.period_end && doc.period_end < todayStr && !inStock && !isMedia)) {
-            counts.archive++;
-          }
-        } 
-        // Стандартные промо-акции
-        else {
-          if (computedStatus === 'new' && inStock) {
-            counts.new++;
-          } else if (computedStatus === 'completed') {
-            counts.completed++;
-          } else if (computedStatus === 'archive' || (doc.period_end && doc.period_end < todayStr && !inStock)) {
-            counts.archive++;
-          }
+        const isMedia = doc.doc_type === 'media';
+        const isGift = doc.doc_type === 'gift';
+
+        // 1) Вкладка "Акции" (Новые в наличии)
+        if (!isGift && !isMedia && s === 'new' && inStockInBranch) {
+          counts.new++;
+        }
+
+        // 2) Вкладка "Подарки" (Новые подарки/медиа в наличии или медиа без привязки к складу)
+        if ((isMedia || (isGift && inStockInBranch)) && currentBranchStatus === 'new') {
+          counts.gifts++;
+        }
+
+        // 3) Вкладка "Завершенные"
+        if (s === 'completed') {
+          counts.completed++;
+        }
+
+        // 4) Вкладка "Архив"
+        if (s === 'archive' || (doc.period_end && doc.period_end < todayStr && !inStockInBranch && !isMedia)) {
+          counts.archive++;
         }
       });
 
