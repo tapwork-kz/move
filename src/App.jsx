@@ -292,10 +292,10 @@ export default function App() {
       const activeBranch = getActiveBranch();
 
       let query = supabase.from('documents').select(`
-        id, dept, doc_type, file_name, period_end, 
-        document_branch_statuses!inner(status, branch), 
-        document_items(normalized_name)
-      `).eq('document_branch_statuses.branch', activeBranch);
+        id, dept, doc_type, file_name, period_end, status,
+        document_branch_statuses(status, branch), 
+        document_items(normalized_name, is_in_stock)
+      `);
 
       const userDepts = Array.isArray(user.dept) ? user.dept : (user.dept ? [user.dept] : []);
       const hasAllAccess = user.role === 'Директор' || user.role === 'Супервайзер' || user.role === 'Инфо-консультант' || userDepts.includes('ALL');
@@ -339,18 +339,18 @@ export default function App() {
 
       const checkDocStockInBranch = (doc) => {
         if (!doc.document_items || doc.document_items.length === 0) return true;
-        return doc.document_items.some(item => branchStockMap[item.normalized_name] === true);
+        return doc.document_items.some(item => branchStockMap[item.normalized_name] === true || item.is_in_stock === true);
       };
 
       const todayStr = new Date().toISOString().split('T')[0];
       const counts = { new: 0, completed: 0, gifts: 0, archive: 0 };
 
       docsData.forEach(doc => {
-        const branchStatusObj = Array.isArray(doc.document_branch_statuses) 
-          ? doc.document_branch_statuses[0] 
-          : doc.document_branch_statuses;
+        // Находим статус для текущего подразделения, если его нет — берем базовый из documents
+        const branchStatusList = Array.isArray(doc.document_branch_statuses) ? doc.document_branch_statuses : [];
+        const currentBranchRecord = branchStatusList.find(b => b.branch === activeBranch);
+        const currentBranchStatus = currentBranchRecord ? currentBranchRecord.status : (doc.status || 'new');
 
-        const currentBranchStatus = branchStatusObj?.status || 'new';
         const inStockInBranch = checkDocStockInBranch(doc);
         if (doc.doc_type !== 'media' && !inStockInBranch) return;
 
@@ -387,45 +387,6 @@ export default function App() {
     }
   };
 
-  const handleTouchStart = (e) => {
-    if (selectedDoc) return;
-    setTouchStart(e.targetTouches[0].clientX);
-  };
-  
-  const handleTouchEnd = (e) => {
-    if (selectedDoc || !touchStart) return;
-    const touchEnd = e.changedTouches[0].clientX;
-    const diff = touchStart - touchEnd;
-    const currentIdx = tabOrder.indexOf(currentTab);
-
-    if (diff > 70 && currentIdx < tabOrder.length - 1) {
-      setCurrentTab(tabOrder[currentIdx + 1]);
-      setPromoSubTab('new');
-      setGiftsSubTab('new');
-    } else if (diff < -70 && currentIdx > 0) {
-      setCurrentTab(tabOrder[currentIdx - 1]);
-      setPromoSubTab('new');
-      setGiftsSubTab('new');
-    }
-    setTouchStart(null);
-  };
-
-  const handleLogin = async (e) => {
-    e.preventDefault();
-    setAuthError('');
-    setAuthLoading(true);
-    try {
-      const { data, error } = await supabase.from('users').select('*').eq('iin', authForm.iin).eq('password', authForm.password).maybeSingle();
-      if (error) throw error;
-      if (!data) { setAuthError('Неверный ИИН или пароль.'); return; }
-      if (data.login_status !== true) { setAuthError('Вход запрещен.'); return; }
-      setUser(data);
-      setSelectedDept(data.role === 'Директор' || data.role === 'Супервайзер' || data.role === 'Инфо-консультант' ? '' : data.dept);
-      setSelectedBranch(data.branch === 'ALL' ? 'rozybakieva' : (data.branch || 'rozybakieva'));
-      localStorage.setItem('promo_app_user', JSON.stringify(data));
-    } catch (err) { setAuthError('Ошибка: ' + err.message); } finally { setAuthLoading(false); }
-  };
-
   const fetchDocuments = async () => {
     if (!user) return;
     setLoading(true);
@@ -434,15 +395,18 @@ export default function App() {
 
       let query = supabase.from('documents').select(`
         *,
-        document_branch_statuses!inner(
+        processed_by:users!processed_by_iin(full_name),
+        completed_by:users!completed_by_iin(full_name),
+        document_branch_statuses(
           status,
+          branch,
           processed_at,
           completed_at,
-          processed_by:users!processed_by_iin(full_name),
-          completed_by:users!completed_by_iin(full_name)
+          processed_by:users!fk_branch_status_processed_iin(full_name),
+          completed_by:users!fk_branch_status_completed_iin(full_name)
         ),
-        document_items(price, change_type, raw_name, normalized_name)
-      `).eq('document_branch_statuses.branch', activeBranch);
+        document_items(price, is_in_stock, change_type, raw_name, normalized_name)
+      `);
 
       const userDepts = Array.isArray(user.dept) ? user.dept : (user.dept ? [user.dept] : []);
       const hasAllAccess = user.role === 'Директор' || user.role === 'Супервайзер' || user.role === 'Инфо-консультант' || userDepts.includes('ALL');
@@ -479,7 +443,7 @@ export default function App() {
       const { data, error } = await query.order('created_at', { ascending: false });
       if (error) throw error;
 
-      // Получаем остатки конкретного подразделения для фильтрации карточек
+      // Получаем остатки конкретного подразделения для фильтрации наличия
       const allNormalizedNames = new Set();
       (data || []).forEach(doc => {
         if (doc.document_items) {
@@ -509,16 +473,15 @@ export default function App() {
 
       const checkDocStock = (doc) => {
         if (!doc.document_items || doc.document_items.length === 0) return true;
-        return doc.document_items.some(item => branchStockMap[item.normalized_name] === true);
+        return doc.document_items.some(item => branchStockMap[item.normalized_name] === true || item.is_in_stock === true);
       };
 
       const todayStr = new Date().toISOString().split('T')[0];
       let mapped = (data || []).map(doc => {
-        const branchStatusObj = Array.isArray(doc.document_branch_statuses) 
-          ? doc.document_branch_statuses[0] 
-          : doc.document_branch_statuses;
+        const branchStatusList = Array.isArray(doc.document_branch_statuses) ? doc.document_branch_statuses : [];
+        const currentBranchRecord = branchStatusList.find(b => b.branch === activeBranch);
 
-        const currentBranchStatus = branchStatusObj?.status || 'new';
+        const currentBranchStatus = currentBranchRecord ? currentBranchRecord.status : (doc.status || 'new');
         const inStockInBranch = checkDocStock(doc);
         let s = currentBranchStatus;
         const isCorrection = doc.file_name ? doc.file_name.toLowerCase().includes('корректировк') : false;
@@ -533,10 +496,10 @@ export default function App() {
           hasStockInBranch: inStockInBranch,
           computedStatus: s,
           status: currentBranchStatus,
-          processed_by: branchStatusObj?.processed_by,
-          processed_at: branchStatusObj?.processed_at,
-          completed_by: branchStatusObj?.completed_by,
-          completed_at: branchStatusObj?.completed_at
+          processed_by: currentBranchRecord?.processed_by || doc.processed_by,
+          processed_at: currentBranchRecord?.processed_at || doc.processed_at,
+          completed_by: currentBranchRecord?.completed_by || doc.completed_by,
+          completed_at: currentBranchRecord?.completed_at || doc.completed_at
         };
       });
 
