@@ -82,6 +82,7 @@ export default function App() {
     };
   }, [selectedDoc]);
 
+  // ПОИСК ПО ВЕДОМОСТИ С ПОДТЯГИВАНИЕМ ЦЕНЫ ИЗ ПОСЛЕДНЕГО ДОКУМЕНТА
   useEffect(() => {
     if (currentTab !== 'statement') return;
     const trimmed = statementQuery.trim();
@@ -95,24 +96,47 @@ export default function App() {
       try {
         const activeBranch = getActiveBranch();
 
-        const { data, error } = await supabase.rpc('search_inventory_with_prices', {
-          search_query: trimmed,
-          user_branch: activeBranch
-        });
+        // 1. Ищем остатки номенклатуры в inventory по активному подразделению
+        const { data: invData, error: invError } = await supabase
+          .from('inventory')
+          .select('id, raw_name, normalized_name, stock_warehouse, stock_showcase')
+          .ilike('raw_name', `%${trimmed}%`)
+          .eq('branch', activeBranch)
+          .limit(60);
 
-        if (error) {
-          console.error("Ошибка Supabase RPC:", error);
-          const { data: fallbackData } = await supabase
-            .from('inventory')
-            .select('id, raw_name, normalized_name, stock_warehouse, stock_showcase')
-            .ilike('raw_name', `%${trimmed}%`)
-            .eq('branch', activeBranch)
-            .limit(100);
+        if (invError) throw invError;
 
-          setStatementItems((fallbackData || []).map(item => ({ ...item, latest_price: '—' })));
-        } else {
-          setStatementItems(data || []);
+        if (!invData || invData.length === 0) {
+          setStatementItems([]);
+          return;
         }
+
+        // 2. Достаем актуальные цены из последних поступивших документов
+        const normNames = invData.map(i => i.normalized_name).filter(Boolean);
+        let priceMap = {};
+
+        if (normNames.length > 0) {
+          const { data: itemsPriceData } = await supabase
+            .from('document_items')
+            .select('normalized_name, price, created_at')
+            .in('normalized_name', normNames)
+            .order('created_at', { ascending: false });
+
+          if (itemsPriceData) {
+            itemsPriceData.forEach(p => {
+              if (!priceMap[p.normalized_name]) {
+                priceMap[p.normalized_name] = p.price;
+              }
+            });
+          }
+        }
+
+        const enrichedStatement = invData.map(item => ({
+          ...item,
+          latest_price: priceMap[item.normalized_name] || '—'
+        }));
+
+        setStatementItems(enrichedStatement);
       } catch (err) {
         console.error("Ошибка поиска по ведомости:", err.message);
       } finally {
@@ -233,11 +257,7 @@ export default function App() {
     return () => window.removeEventListener('focus', handleWindowFocus);
   }, [currentTab, selectedDept, searchQuery, dateFilter, monthFilter, promoSubTab, giftsSubTab, user, selectedBranch]);
 
-  const hasStock = (doc) => {
-    if (!doc?.document_items || doc.document_items.length === 0) return true;
-    return doc.document_items.some(item => item.is_in_stock === true);
-  };
-
+  // ОБНОВЛЕНИЕ СЧЕТЧИКОВ СТРОГО ПО ОСТАТКАМ ВЫБРАННОГО ПОДРАЗДЕЛЕНИЯ
   const updateTabCounters = async () => {
     if (!user) return;
     try {
@@ -246,7 +266,7 @@ export default function App() {
       let query = supabase.from('documents').select(`
         id, dept, doc_type, period_end, 
         document_branch_statuses!inner(status, branch), 
-        document_items(normalized_name, is_in_stock)
+        document_items(normalized_name)
       `).eq('document_branch_statuses.branch', activeBranch);
 
       const userDepts = Array.isArray(user.dept) ? user.dept : (user.dept ? [user.dept] : []);
@@ -291,7 +311,7 @@ export default function App() {
 
       const checkDocStockInBranch = (doc) => {
         if (!doc.document_items || doc.document_items.length === 0) return true;
-        return doc.document_items.some(item => branchStockMap[item.normalized_name] === true || item.is_in_stock === true);
+        return doc.document_items.some(item => branchStockMap[item.normalized_name] === true);
       };
 
       const todayStr = new Date().toISOString().split('T')[0];
@@ -383,6 +403,7 @@ export default function App() {
     localStorage.removeItem('promo_app_user');
   };
 
+  // ВЫГРУЗКА ДОКУМЕНТОВ С ПРОВЕРКОЙ НАЛИЧИЯ В КОНКРЕТНОМ ПОДРАЗДЕЛЕНИИ
   const fetchDocuments = async () => {
     if (!user) return;
     setLoading(true);
@@ -398,7 +419,7 @@ export default function App() {
           processed_by:users!processed_by_iin(full_name),
           completed_by:users!completed_by_iin(full_name)
         ),
-        document_items(price, is_in_stock, change_type, raw_name)
+        document_items(price, change_type, raw_name, normalized_name)
       `).eq('document_branch_statuses.branch', activeBranch);
 
       const userDepts = Array.isArray(user.dept) ? user.dept : (user.dept ? [user.dept] : []);
@@ -436,6 +457,31 @@ export default function App() {
       const { data, error } = await query.order('created_at', { ascending: false });
       if (error) throw error;
 
+      // Получаем остатки для всех номенклатур полученных документов в данном подразделении
+      const allDocNormNames = new Set();
+      (data || []).forEach(doc => {
+        (doc.document_items || []).forEach(item => {
+          if (item.normalized_name) allDocNormNames.add(item.normalized_name);
+        });
+      });
+
+      let branchStockSet = new Set();
+      if (allDocNormNames.size > 0) {
+        const { data: invData } = await supabase
+          .from('inventory')
+          .select('normalized_name, stock_warehouse, stock_showcase')
+          .in('normalized_name', Array.from(allDocNormNames))
+          .eq('branch', activeBranch);
+
+        if (invData) {
+          invData.forEach(inv => {
+            if (((inv.stock_warehouse || 0) + (inv.stock_showcase || 0)) > 0) {
+              branchStockSet.add(inv.normalized_name);
+            }
+          });
+        }
+      }
+
       const todayStr = new Date().toISOString().split('T')[0];
       let mapped = (data || []).map(doc => {
         const branchStatusObj = Array.isArray(doc.document_branch_statuses) 
@@ -443,11 +489,16 @@ export default function App() {
           : doc.document_branch_statuses;
 
         const currentBranchStatus = branchStatusObj?.status || 'new';
+        
+        // Наличие в конкретном филиале
+        const branchHasStock = !doc.document_items || doc.document_items.length === 0 || 
+          doc.document_items.some(item => branchStockSet.has(item.normalized_name));
+
         let s = currentBranchStatus;
         const isCorrection = doc.file_name ? doc.file_name.toLowerCase().includes('корректировк') : false;
 
         if (doc.period_end && doc.period_end < todayStr && !isCorrection) {
-          if (currentBranchStatus === 'new' && !hasStock(doc)) s = 'archive';
+          if (currentBranchStatus === 'new' && !branchHasStock) s = 'archive';
           else if (currentBranchStatus === 'processed') s = 'completed';
         }
 
@@ -455,6 +506,7 @@ export default function App() {
           ...doc, 
           computedStatus: s,
           status: currentBranchStatus,
+          branchHasStock: branchHasStock,
           processed_by: branchStatusObj?.processed_by,
           processed_at: branchStatusObj?.processed_at,
           completed_by: branchStatusObj?.completed_by,
@@ -465,22 +517,22 @@ export default function App() {
       let finalDocs = [];
       if (currentTab === 'new') {
         if (promoSubTab === 'new') {
-          finalDocs = mapped.filter(doc => doc.computedStatus === 'new' && hasStock(doc) && doc.doc_type !== 'gift' && doc.doc_type !== 'media');
+          finalDocs = mapped.filter(doc => doc.computedStatus === 'new' && doc.branchHasStock && doc.doc_type !== 'gift' && doc.doc_type !== 'media');
         } else {
-          finalDocs = mapped.filter(doc => ((doc.computedStatus === 'processed') || (doc.computedStatus === 'new' && !hasStock(doc))) && doc.doc_type !== 'gift' && doc.doc_type !== 'media');
+          finalDocs = mapped.filter(doc => ((doc.computedStatus === 'processed') || (doc.computedStatus === 'new' && !doc.branchHasStock)) && doc.doc_type !== 'gift' && doc.doc_type !== 'media');
         }
       } else if (currentTab === 'gifts') {
         if (giftsSubTab === 'new') {
-          finalDocs = mapped.filter(doc => (doc.doc_type === 'media' || (doc.doc_type === 'gift' && hasStock(doc))) && doc.status === 'new');
+          finalDocs = mapped.filter(doc => (doc.doc_type === 'media' || (doc.doc_type === 'gift' && doc.branchHasStock)) && doc.status === 'new');
         } else {
-          finalDocs = mapped.filter(doc => (doc.doc_type === 'media' || doc.doc_type === 'gift') && (doc.status === 'processed' || (doc.doc_type === 'gift' && !hasStock(doc) && doc.status === 'new')));
+          finalDocs = mapped.filter(doc => (doc.doc_type === 'media' || doc.doc_type === 'gift') && (doc.status === 'processed' || (doc.doc_type === 'gift' && !doc.branchHasStock && doc.status === 'new')));
         }
       } else if (currentTab === 'completed') {
         finalDocs = mapped.filter(doc => doc.computedStatus === 'completed');
       } else if (currentTab === 'archive') {
         finalDocs = mapped.filter(doc => 
           (doc.computedStatus === 'archive') || 
-          (doc.period_end && doc.period_end < todayStr && !hasStock(doc) && doc.doc_type !== 'media')
+          (doc.period_end && doc.period_end < todayStr && !doc.branchHasStock && doc.doc_type !== 'media')
         );
       }
 
@@ -488,6 +540,7 @@ export default function App() {
     } catch (err) { console.error(err.message); } finally { setLoading(false); }
   };
 
+  // ОТКРЫТИЕ ДОКУМЕНТА: ОБОГАЩЕНИЕ ОСТАТКАМИ ТОЛЬКО ТЕКУЩЕГО ПОДРАЗДЕЛЕНИЯ
   const openDocDetails = async (doc) => {
     setActiveDocId(doc.id);
     setSelectedDoc(doc);
@@ -518,11 +571,16 @@ export default function App() {
               };
             });
 
-            const enrichedItems = itemsData.map(item => ({
-              ...item,
-              stock_wh: invMap[item.normalized_name]?.wh ?? 0,
-              stock_sc: invMap[item.normalized_name]?.sc ?? 0
-            }));
+            const enrichedItems = itemsData.map(item => {
+              const wh = invMap[item.normalized_name]?.wh ?? 0;
+              const sc = invMap[item.normalized_name]?.sc ?? 0;
+              return {
+                ...item,
+                stock_wh: wh,
+                stock_sc: sc,
+                branch_in_stock: (wh + sc) > 0 // Наличие в подразделении
+              };
+            });
             setDocItems(enrichedItems);
             return;
           }
@@ -604,9 +662,10 @@ export default function App() {
     }
   };
 
+  // ФИЛЬТРАЦИЯ НОМЕНКЛАТУР В МОДАЛКЕ ПО НАЛИЧИЮ В ПОДРАЗДЕЛЕНИИ
   const filteredItems = docItems.filter(item => {
     const matchesText = item.raw_name ? item.raw_name.toLowerCase().includes(itemSearch.toLowerCase()) : false;
-    if (modalTab === 'in_stock') return matchesText && item.is_in_stock;
+    if (modalTab === 'in_stock') return matchesText && item.branch_in_stock;
     return matchesText;
   });
 
@@ -646,26 +705,29 @@ export default function App() {
       onTouchEnd={handleTouchEnd}
       className="w-full max-w-full overflow-hidden h-[100dvh] max-h-[100dvh] bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 flex flex-col select-none"
     >
+      {/* ================= ЗАКРЕПЛЕННАЯ СВЕРХУ ПАНЕЛЬ УПРАВЛЕНИЯ ================= */}
       <div className="w-full shrink-0 relative z-30 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-xs transition-colors duration-300">
         
-        <header className="px-4 py-2.5 flex items-center justify-between gap-4 max-w-3xl mx-auto w-full">
-          <div className="flex items-center gap-2">
-            <div className="bg-blue-600 text-white w-6 h-6 rounded-md flex items-center justify-center font-bold text-xs">PM</div>
-            <div>
-              <h1 className="text-xs font-bold text-slate-900 dark:text-slate-100 leading-none">Мониторинг Промо</h1>
-              <div className="flex items-center gap-1 text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">
+        {/* ИСПРАВЛЕНА ВЕРСТКА: flex-wrap и gap предотвращают перекрытие элементов */}
+        <header className="px-4 py-2.5 flex flex-wrap items-center justify-between gap-2 max-w-3xl mx-auto w-full">
+          <div className="flex items-center gap-2 min-w-[170px]">
+            <div className="bg-blue-600 text-white w-6 h-6 rounded-md flex items-center justify-center font-bold text-xs shrink-0">PM</div>
+            <div className="truncate">
+              <h1 className="text-xs font-bold text-slate-900 dark:text-slate-100 leading-none truncate">Мониторинг Промо</h1>
+              <div className="flex items-center gap-1 text-[10px] text-slate-400 dark:text-slate-500 mt-0.5 truncate">
                 <span>{user?.full_name}</span>
                 <span>•</span>
-                <span className="truncate max-w-[160px]">{renderUserDepts(user?.dept)}</span>
+                <span className="truncate">{renderUserDepts(user?.dept)}</span>
               </div>
             </div>
           </div>
           
-          <div className="flex items-center gap-1.5">
+          {/* Контейнер фильтров подразделения и отдела */}
+          <div className="flex items-center gap-1.5 flex-wrap">
             {user?.branch === 'ALL' && (
-              <div className="flex items-center gap-1 bg-blue-50 dark:bg-slate-800 border border-blue-200 dark:border-slate-700 px-1.5 py-0.5 rounded-lg text-[10px]">
+              <div className="flex items-center gap-1 bg-blue-50 dark:bg-slate-800 border border-blue-200 dark:border-slate-700 px-2 py-1 rounded-lg text-[10px]">
                 <select 
-                  className="bg-transparent border-none font-bold text-blue-700 dark:text-blue-300 outline-none p-0 text-[10px]" 
+                  className="bg-transparent border-none font-bold text-blue-700 dark:text-blue-300 outline-none p-0 text-[10px] cursor-pointer" 
                   value={selectedBranch || 'rozybakieva'} 
                   onChange={e => setSelectedBranch(e.target.value)}
                 >
@@ -675,10 +737,10 @@ export default function App() {
             )}
 
             {(user?.role === 'Директор' || user?.role === 'Супервайзер' || user?.role === 'Инфо-консультант') && (
-              <div className="flex items-center gap-1 bg-amber-50 dark:bg-slate-800 border border-amber-200 dark:border-slate-700 px-1.5 py-0.5 rounded-lg text-[10px] transition-colors duration-500">
+              <div className="flex items-center gap-1 bg-amber-50 dark:bg-slate-800 border border-amber-200 dark:border-slate-700 px-2 py-1 rounded-lg text-[10px] transition-colors duration-500">
                 <IconAdmin />
                 <select 
-                  className="bg-transparent border-none font-bold text-slate-700 dark:text-slate-200 outline-none p-0 text-[10px]" 
+                  className="bg-transparent border-none font-bold text-slate-700 dark:text-slate-200 outline-none p-0 text-[10px] cursor-pointer" 
                   value={selectedDept} 
                   onChange={e => setSelectedDept(e.target.value)}
                 >
@@ -782,6 +844,7 @@ export default function App() {
         </div>
       </div>
 
+      {/* ================= ЛЕНТА КАРТОЧЕК ДОКУМЕНТОВ ================= */}
       <main 
         key={currentTab} 
         className="p-4 flex-1 overflow-y-auto overscroll-y-contain max-w-3xl mx-auto w-full animate-fade-in"
@@ -802,7 +865,7 @@ export default function App() {
                       <th className="p-2.5 text-left">Номенклатура</th>
                       <th className="p-1 text-center w-[48px]">Склад</th>
                       <th className="p-1 text-center w-[48px]">Витр.</th>
-                      <th className="p-2.5 text-right w-[70px]">Цена</th>
+                      <th className="p-2.5 text-right w-[75px]">Цена</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -819,7 +882,7 @@ export default function App() {
                         <td className="p-2.5 text-left font-normal text-slate-700 dark:text-slate-300 break-words whitespace-normal align-middle">{item.raw_name}</td>
                         <td className="p-1 text-center font-bold text-blue-600 dark:text-blue-400 align-middle">{item.stock_warehouse}</td>
                         <td className="p-1 text-center font-bold text-amber-600 dark:text-amber-400 align-middle">{item.stock_showcase}</td>
-                        <td className="p-2.5 text-right font-normal text-slate-900 dark:text-slate-100 align-middle">
+                        <td className="p-2.5 text-right font-bold text-slate-900 dark:text-slate-100 align-middle">
                           {formatDisplayPrice(item.latest_price)}
                         </td>
                       </tr>
@@ -860,7 +923,7 @@ export default function App() {
                   <h3 className="font-normal text-slate-700 dark:text-slate-200 text-xs sm:text-sm truncate transition-colors duration-300">{doc.file_name}</h3>
                   
                   <div className="flex flex-wrap gap-x-2 text-[9px] pt-0.5">
-                    {!hasStock(doc) && doc.computedStatus === 'new' && doc.doc_type !== 'media' ? (
+                    {!doc.branchHasStock && doc.computedStatus === 'new' && doc.doc_type !== 'media' ? (
                       <span className="text-amber-600 dark:text-amber-400 font-bold bg-amber-50 dark:bg-amber-950/30 px-1 rounded transition-colors duration-300">Нет в наличии</span>
                     ) : (
                       <div className="text-slate-400 dark:text-slate-500 flex flex-wrap gap-x-2">
@@ -887,6 +950,7 @@ export default function App() {
         )}
       </main>
 
+      {/* ================= МОДАЛЬНОЕ ОКНО СПЕЦИФИКАЦИИ ДОКУМЕНТА ================= */}
       {selectedDoc && (() => {
         const isMediaContent = selectedDoc.doc_type === 'media' || selectedDoc.file_name?.match(/\.(jpeg|jpg|gif|png|webp|pdf)$/i);
         
@@ -897,6 +961,8 @@ export default function App() {
         const finalUrl = driveId 
           ? `https://drive.google.com/file/d/${driveId}/preview` 
           : selectedDoc.file_url;
+
+        const countInStock = docItems.filter(i => i.branch_in_stock).length;
 
         return (
           <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-40 flex items-center justify-center p-3 pb-8 sm:p-4 transition-opacity duration-300 ease-out">
@@ -914,7 +980,7 @@ export default function App() {
                 <div className="p-1 bg-slate-50 dark:bg-slate-950/40 border-b dark:border-slate-800 shrink-0">
                   <div className="grid grid-cols-3 bg-slate-200/60 dark:bg-slate-800/60 p-0.5 rounded-lg text-slate-500 font-medium w-full">
                     <button onClick={() => setModalTab('in_stock')} className={`flex items-center justify-center gap-1 py-1 text-[10px] sm:text-xs rounded-md transition-all ${modalTab === 'in_stock' ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-2xs' : ''}`}>
-                      <IconStock /> В наличии ({docItems.filter(i => i.is_in_stock).length})
+                      <IconStock /> В наличии ({countInStock})
                     </button>
                     <button onClick={() => setModalTab('all')} className={`flex items-center justify-center gap-1 py-1 text-[10px] sm:text-xs rounded-md transition-all ${modalTab === 'all' ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-2xs' : ''}`}>
                       <IconAll /> Все ({docItems.length})
@@ -1050,7 +1116,7 @@ export default function App() {
 
               <div className="p-2 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 flex items-center justify-end gap-1.5 shrink-0">
                 <button onClick={() => setSelectedDoc(null)} className="px-3 py-1.5 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-bold bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300">Закрыть</button>
-                {selectedDoc?.status === 'new' && ((currentTab === 'new' && promoSubTab === 'new' && hasStock(selectedDoc)) || (currentTab === 'gifts' && giftsSubTab === 'new')) && (
+                {selectedDoc?.status === 'new' && ((currentTab === 'new' && promoSubTab === 'new' && selectedDoc.branchHasStock) || (currentTab === 'gifts' && giftsSubTab === 'new')) && (
                   <button onClick={() => setConfirmModal({ show: true, type: 'process', docId: selectedDoc.id })} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg shadow-xs">Оформить</button>
                 )}
                 {currentTab === 'completed' && (
@@ -1062,6 +1128,7 @@ export default function App() {
         );
       })()}
 
+      {/* ================= ДИАЛОГ ПОДТВЕРЖДЕНИЯ ДЕЙСТВИЯ ================= */}
       {confirmModal.show && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
           <div className="bg-white dark:bg-slate-900 p-5 rounded-xl max-w-xs w-full shadow-2xl text-center border dark:border-slate-800">
@@ -1077,6 +1144,7 @@ export default function App() {
         </div>
       )}
 
+      {/* ================= МОДАЛЬНОЕ ОКНО ИСТОРИИ ЦЕН ТОВАРА ================= */}
       {selectedHistoryItem && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
           <div className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl max-w-md w-full max-h-[70vh] flex flex-col overflow-hidden border dark:border-slate-800 animate-in fade-in zoom-in-95 duration-150">
