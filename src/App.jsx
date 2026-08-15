@@ -661,18 +661,26 @@ export default function App() {
     );
   };
 
-  // Выполнение массового статуса
-  const executeBatchStatusChange = async (targetStatus = 'processed') => {
-    if (selectedDocIds.length === 0) return;
+  // Выполнение массового изменения статуса документов
+  const executeBatchStatusChange = async () => {
+    if (selectedDocIds.length === 0 || !user) return;
     const activeBranch = getActiveBranch();
+    const isCompletedTab = currentTab === 'completed';
+    const targetStatus = isCompletedTab ? 'archive' : 'processed';
 
-    const updatePayload = {
-      status: targetStatus,
-      processed_by_iin: user.iin,
-      processed_at: new Date().toISOString()
-    };
+    const updatePayload = {};
+    if (targetStatus === 'processed') {
+      updatePayload.status = 'processed';
+      updatePayload.processed_by_iin = user.iin;
+      updatePayload.processed_at = new Date().toISOString();
+    } else {
+      updatePayload.status = 'archive';
+      updatePayload.completed_by_iin = user.iin;
+      updatePayload.completed_at = new Date().toISOString();
+    }
 
     try {
+      setLoading(true);
       const { error } = await supabase
         .from('document_branch_statuses')
         .update(updatePayload)
@@ -680,11 +688,14 @@ export default function App() {
         .eq('branch', activeBranch);
 
       if (error) throw error;
+
       setSelectedDocIds([]);
-      fetchDocuments();
-      updateTabCounters();
+      await fetchDocuments();
+      await updateTabCounters();
     } catch (err) {
       alert("Ошибка массового обновления: " + err.message);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -942,7 +953,7 @@ export default function App() {
       {/* ================= ЛЕНТА КАРТОЧЕК ДОКУМЕНТОВ ================= */}
       <main 
         key={currentTab} 
-        className="p-4 flex-1 overflow-y-auto overscroll-y-contain max-w-3xl mx-auto w-full animate-fade-in relative"
+        className="p-4 flex-1 overflow-y-auto overscroll-y-contain max-w-3xl mx-auto w-full animate-fade-in"
       >
         {currentTab === 'statement' ? (
           <div className="space-y-3 pb-4 pt-1.5">
@@ -1004,7 +1015,7 @@ export default function App() {
         ) : documents.length === 0 ? (
           <div className="text-center py-8 bg-white dark:bg-slate-900 border dark:border-slate-800 rounded-xl text-xs text-slate-400 font-medium transition-colors duration-300">Список пуст</div>
         ) : (
-          <div className="space-y-1.5 pb-20">
+          <div className="space-y-1.5 pb-24">
             {documents.map(doc => {
               const isSelected = selectedDocIds.includes(doc.id);
 
@@ -1014,7 +1025,7 @@ export default function App() {
                   onClick={(e) => handleDocCardClick(e, doc)}
                   className={`p-2.5 rounded-lg border flex items-center justify-between gap-3 active:scale-[0.99] transition-all duration-150 ease-out shadow-2xs relative cursor-pointer ${
                     isSelected
-                      ? 'bg-blue-100/70 dark:bg-blue-900/30 border-blue-500 ring-2 ring-blue-400/40 pl-2.5'
+                      ? 'bg-blue-100/80 dark:bg-blue-900/40 border-blue-500 ring-2 ring-blue-500/50 pl-2.5'
                       : activeDocId === doc.id 
                         ? 'bg-blue-50/50 dark:bg-blue-950/20 border-blue-400 dark:border-blue-800 border-l-4 border-l-blue-500 pl-2' 
                         : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
@@ -1022,7 +1033,6 @@ export default function App() {
                 >
                   <div className="space-y-0.5 min-w-0 flex-1 pr-16">
                     <div className="flex items-center gap-1.5 flex-wrap">
-                      {/* Чекбокс выделения при мультиселекте */}
                       {selectedDocIds.length > 0 && (
                         <input
                           type="checkbox"
@@ -1071,33 +1081,41 @@ export default function App() {
             </div>
           </div>
         )}
-
-        {/* ПЛАВАЮЩАЯ ПАНЕЛЬ МАССОВОГО ОФОРМЛЕНИЯ ПРИ ВЫДЕЛЕНИИ ЧЕРЕЗ CTRL/CMD + КЛИК */}
-        {selectedDocIds.length > 0 && (
-          <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-30 bg-slate-900/90 dark:bg-slate-800/95 text-white px-4 py-2.5 rounded-2xl shadow-2xl backdrop-blur-md flex items-center gap-3 border border-slate-700/50 animate-in fade-in slide-in-from-bottom-5 duration-200">
-            <span className="text-xs font-semibold text-slate-200 whitespace-nowrap">
-              Выбрано: <strong className="text-white font-black">{selectedDocIds.length}</strong>
-            </span>
-            
-            <div className="h-4 w-px bg-slate-700" />
-
-            <button
-              onClick={() => executeBatchStatusChange('processed')}
-              className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-xl shadow-md transition active:scale-95 whitespace-nowrap"
-            >
-              Оформить выделенные ({selectedDocIds.length})
-            </button>
-
-            <button
-              onClick={() => setSelectedDocIds([])}
-              className="p-1 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition"
-              title="Сбросить выделение"
-            >
-              <IconClose />
-            </button>
-          </div>
-        )}
       </main>
+
+      {/* ================= ФИКСИРОВАННАЯ ПЛАВАЮЩАЯ ПАНЕЛЬ МАССОВОГО ДЕЙСТВИЯ ================= */}
+      {selectedDocIds.length > 0 && (
+        <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 bg-slate-900/95 dark:bg-slate-800/95 text-white px-4 py-2.5 rounded-2xl shadow-2xl backdrop-blur-md flex items-center gap-3 border border-slate-700/60 transition-all duration-200">
+          <span className="text-xs font-semibold text-slate-200 whitespace-nowrap">
+            Выбрано: <strong className="text-white font-black">{selectedDocIds.length}</strong>
+          </span>
+          
+          <div className="h-4 w-px bg-slate-700" />
+
+          <button
+            type="button"
+            onClick={executeBatchStatusChange}
+            className={`px-3.5 py-1.5 text-white text-xs font-bold rounded-xl shadow-md transition active:scale-95 whitespace-nowrap ${
+              currentTab === 'completed' 
+                ? 'bg-green-600 hover:bg-green-500' 
+                : 'bg-blue-600 hover:bg-blue-500'
+            }`}
+          >
+            {currentTab === 'completed' 
+              ? `Обновить ценники (${selectedDocIds.length})` 
+              : `Оформить выделенные (${selectedDocIds.length})`}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setSelectedDocIds([])}
+            className="p-1 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition"
+            title="Сбросить выделение"
+          >
+            <IconClose />
+          </button>
+        </div>
+      )}
 
       {/* ================= МОДАЛЬНОЕ ОКНО СПЕЦИФИКАЦИИ ДОКУМЕНТА ================= */}
       {selectedDoc && (() => {
