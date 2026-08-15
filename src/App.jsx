@@ -72,35 +72,11 @@ export default function App() {
     return selectedBranch || 'rozybakieva';
   };
 
-  // Проверка: есть ли в документе измененные строки (green, red, yellow) или пометка "корректировка"
-  const hasModifiedItemsOrCorrection = (doc) => {
-    const isCorrText = `${doc?.file_name || ''} ${doc?.promo_number || ''}`.toLowerCase();
-    if (isCorrText.includes('корректировк') || isCorrText.includes('корр.') || isCorrText.includes('корр ') || isCorrText.includes('коррекция')) {
-      return true;
-    }
-    if (doc?.document_items && Array.isArray(doc.document_items)) {
-      return doc.document_items.some(item => 
-        item.change_type === 'green' || item.change_type === 'red' || item.change_type === 'yellow'
-      );
-    }
-    return false;
-  };
-
-  // Определение стиля бейджа номера документа
-  const getDocBadgeStyle = (doc) => {
-    if (doc?.doc_type === 'revaluation') {
-      return 'bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-500';
-    }
-    if (hasModifiedItemsOrCorrection(doc)) {
-      return 'bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-500';
-    }
-    return 'bg-blue-50 text-blue-700 border-blue-300 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-500';
-  };
-
-  // Глубокий парсер для извлечения номера акции без "ЗАПУСК" и мусора
+  // Улучшенный интеллектуальный парсер номеров акций
   const getPromoNumber = (doc) => {
     let raw = String(doc?.promo_number || '').trim();
 
+    // Очищаем приставки ЗАПУСК, Промо, Акция
     raw = raw
       .replace(/запуск\s*[-_:]?\s*/gi, '')
       .replace(/акция\s*[-_:]?\s*/gi, '')
@@ -108,43 +84,63 @@ export default function App() {
       .trim();
 
     if (raw && raw !== 'null' && raw !== 'undefined' && raw !== '') {
-      const matchNum = raw.match(/(?:№|#)?\s*([A-Za-z0-9\-\/]+)/);
-      if (matchNum && matchNum[1]) {
-        return `№${matchNum[1].replace(/^№+/, '')}`;
+      const matchNum = raw.match(/[A-Za-z0-9\-\/]+/);
+      if (matchNum) {
+        return `№${matchNum[0].replace(/^№+/, '')}`;
       }
     }
 
     const fileName = String(doc?.file_name || '');
-    const cleaned = fileName.replace(/запуск\s*[-_:]?\s*/gi, '').trim();
+    const cleanedFileName = fileName.replace(/запуск\s*[-_:]?\s*/gi, '');
 
-    // 1. Поиск по префиксам: №1234, #1234, Промо 1234, Акция 1234, Корректировка 1234, PR-1234
-    const matchPrefix = cleaned.match(/(?:№|#|промо|акция|корректировка|корр|pr|id)\s*[-_№#:]?\s*([A-Za-z0-9\-\/]+)/i);
-    if (matchPrefix && matchPrefix[1] && !/^\d{1,2}\.\d{1,2}/.test(matchPrefix[1])) {
-      return `№${matchPrefix[1]}`;
-    }
+    // Проверяем паттерны в имени файла: №12345, #12345, Промо 12345, Акция 12345
+    const matchNo = cleanedFileName.match(/(?:№|#|промо\s*№?|акция\s*№?)\s*([A-Za-z0-9\-\/]+)/i);
+    if (matchNo && matchNo[1]) return `№${matchNo[1]}`;
 
-    // 2. Поиск числа в скобках [12345] или (12345)
-    const matchBracket = cleaned.match(/[\[\(]([A-Za-z0-9\-\/]{3,10})[\]\)]/);
-    if (matchBracket && matchBracket[1]) {
-      return `№${matchBracket[1]}`;
-    }
+    // Паттерн в квадратных или круглых скобках: [12345], (12345)
+    const matchBracket = cleanedFileName.match(/[\[\(]([A-Za-z0-9\-\/]{2,10})[\]\)]/);
+    if (matchBracket && matchBracket[1]) return `№${matchBracket[1]}`;
 
-    // 3. Поиск 3-8 цифр в начале названия файла (например, 240816_...)
-    const matchStartDigits = cleaned.match(/^(\d{3,8})\b/);
-    if (matchStartDigits && matchStartDigits[1]) {
-      return `№${matchStartDigits[1]}`;
-    }
+    // Паттерн числового индекса в начале: 240815_Название
+    const matchDigits = cleanedFileName.match(/^(\d{3,8})\b/);
+    if (matchDigits && matchDigits[1]) return `№${matchDigits[1]}`;
 
-    // 4. Поиск изолированного номера внутри названия файла
-    const matchIsolatedDigits = cleaned.match(/(?:^|\s)(\d{4,7})(?:\s|$|_|-|\.)/);
-    if (matchIsolatedDigits && matchIsolatedDigits[1]) {
-      return `№${matchIsolatedDigits[1]}`;
-    }
-
-    return doc?.doc_type === 'revaluation' ? 'ПЕРЕОЦЕНКА' : 'АКЦИЯ';
+    return 'АКЦИЯ';
   };
 
-  // Безопасная проверка отдела
+  // Определение типа документа и цветовой рамки:
+  // Зеленый = переоценка
+  // Желтый = есть строки с change_type (red, yellow, green) или слово "корректировка"
+  // Синий = стандартная новая акция без закрашенных строк
+  const getDocBadgeStyle = (doc) => {
+    if (doc?.doc_type === 'revaluation') {
+      return {
+        type: 'revaluation',
+        className: 'bg-emerald-50 text-emerald-700 border-emerald-400 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-500'
+      };
+    }
+
+    const fileName = String(doc?.file_name || '').toLowerCase();
+    const isCorrectionName = fileName.includes('корректировк') || fileName.includes('корр.') || fileName.includes('корр ');
+
+    const hasColoredItems = Array.isArray(doc?.document_items) && doc.document_items.some(
+      item => item.change_type === 'red' || item.change_type === 'yellow' || item.change_type === 'green'
+    );
+
+    if (isCorrectionName || hasColoredItems) {
+      return {
+        type: 'correction',
+        className: 'bg-amber-50 text-amber-700 border-amber-400 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-500'
+      };
+    }
+
+    return {
+      type: 'new',
+      className: 'bg-blue-50 text-blue-700 border-blue-400 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-500'
+    };
+  };
+
+  // Безопасная проверка соответствия отдела пользователя
   const matchesUserDept = (docDept, currentUser, filterDept) => {
     const docD = String(docDept || '').toLowerCase();
     
@@ -194,7 +190,7 @@ export default function App() {
     };
   }, [selectedDoc]);
 
-  // Загрузка ведомости остатков с гарантированным подтягиванием цен
+  // Загрузка ведомости остатков с поиском цен
   useEffect(() => {
     if (currentTab !== 'statement') return;
     const trimmed = statementQuery.trim();
@@ -388,7 +384,7 @@ export default function App() {
     return () => window.removeEventListener('focus', handleWindowFocus);
   }, [currentTab, selectedDept, searchQuery, dateFilter, monthFilter, promoSubTab, giftsSubTab, user, selectedBranch]);
 
-  // Глубокий, автономный пересчет счетчиков со всеми документами из БД
+  // Полный пересчёт счётчиков по подразделениям и наличию
   const updateTabCounters = async () => {
     if (!user) return;
     try {
@@ -428,7 +424,7 @@ export default function App() {
         });
       }
 
-      // Документ в наличии, если есть хотя бы 1 остаток в этом филиале
+      // Проверка остатка строго по филиалу
       const checkDocStockInBranch = (doc) => {
         if (!doc.document_items || doc.document_items.length === 0) return true;
         return doc.document_items.some(item => {
@@ -449,24 +445,24 @@ export default function App() {
         const inStock = checkDocStockInBranch(doc);
         const isMedia = doc.doc_type === 'media';
         const isGift = doc.doc_type === 'gift';
-        const isCorr = hasModifiedItemsOrCorrection(doc);
+        const isCorrection = String(doc.file_name || '').toLowerCase().includes('корректировк');
 
         let computedStatus = branchStatus;
-        if (doc.period_end && doc.period_end < todayStr && !isCorr) {
+        if (doc.period_end && doc.period_end < todayStr && !isCorrection) {
           if (branchStatus === 'new' && !inStock) computedStatus = 'archive';
           else if (branchStatus === 'processed') computedStatus = 'completed';
         }
 
-        // По старой логике: если товара нет в наличии, он не попадает в "Новые", а идет в оформленные/завершенные/архив
         if (isGift || isMedia) {
           if (branchStatus === 'new' && (isMedia || inStock)) {
             counts.gifts++;
           } else if (computedStatus === 'completed') {
             counts.completed++;
-          } else if (computedStatus === 'archive') {
+          } else if (computedStatus === 'archive' || (doc.period_end && doc.period_end < todayStr && !inStock && !isMedia)) {
             counts.archive++;
           }
         } else {
+          // Строгая логика: документ считается новым только если он в наличии
           if (computedStatus === 'new' && inStock) {
             counts.new++;
           } else if (computedStatus === 'completed') {
@@ -602,9 +598,9 @@ export default function App() {
         const currentBranchStatus = branchStatusObj?.status || 'new';
         const inStockInBranch = checkDocStock(doc);
         let s = currentBranchStatus;
-        const isCorr = hasModifiedItemsOrCorrection(doc);
+        const isCorrection = String(doc.file_name || '').toLowerCase().includes('корректировк');
 
-        if (doc.period_end && doc.period_end < todayStr && !isCorr) {
+        if (doc.period_end && doc.period_end < todayStr && !isCorrection) {
           if (currentBranchStatus === 'new' && !inStockInBranch) s = 'archive';
           else if (currentBranchStatus === 'processed') s = 'completed';
         }
@@ -624,10 +620,10 @@ export default function App() {
       let finalDocs = [];
       if (currentTab === 'new') {
         if (promoSubTab === 'new') {
-          // По старой проверенной логике: в "Новые" попадают только те, что реально есть в наличии
+          // В новые попадают только те, которые реально в наличии
           finalDocs = mapped.filter(doc => doc.computedStatus === 'new' && doc.hasStockInBranch && doc.doc_type !== 'gift' && doc.doc_type !== 'media');
         } else {
-          // Если товара нет в наличии или он оформлен — уходит в "Оформленные"
+          // Если нет в наличии или уже оформлен - уходит в оформленные
           finalDocs = mapped.filter(doc => ((doc.computedStatus === 'processed') || (doc.computedStatus === 'new' && !doc.hasStockInBranch)) && doc.doc_type !== 'gift' && doc.doc_type !== 'media');
         }
       } else if (currentTab === 'gifts') {
@@ -653,7 +649,7 @@ export default function App() {
     }
   };
 
-  // Детали документа: строгая привязка остатков (склад + витрина) к выбранному филиалу из БД inventory
+  // Детали документа: остатки строго для филиала
   const openDocDetails = async (doc) => {
     setActiveDocId(doc.id);
     setSelectedDoc(doc);
@@ -717,7 +713,6 @@ export default function App() {
     }
   };
 
-  // Обработчик клика по карточке (обычный клик открывает документ, с Ctrl/Cmd - выделяет)
   const handleDocCardClick = (e, doc) => {
     const isMultiKey = e.ctrlKey || e.metaKey;
 
@@ -741,7 +736,6 @@ export default function App() {
     );
   };
 
-  // Массовое изменение статуса выбранных документов
   const executeBatchStatusChange = async () => {
     if (selectedDocIds.length === 0 || !user) return;
     const activeBranch = getActiveBranch();
@@ -1125,9 +1119,12 @@ export default function App() {
                           className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-0 cursor-pointer mr-0.5"
                         />
                       )}
-                      <span className={`text-[8px] font-black px-1.5 py-0.5 rounded border transition-colors duration-300 ${badgeStyle}`}>
+                      
+                      {/* Рамка номера акции с дифференциацией по цветам */}
+                      <span className={`text-[8px] font-black px-1.5 py-0.5 rounded border transition-colors duration-300 ${badgeStyle.className}`}>
                         {displayPromoNumber}
                       </span>
+
                       {(doc.doc_type === 'gift' || doc.doc_type === 'media') && currentTab !== 'processed' && (
                         <span className="bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 text-[8px] font-black px-1 rounded border border-purple-200 dark:border-purple-900">
                           Подарок / Комплект
@@ -1203,7 +1200,8 @@ export default function App() {
       {/* ================= МОДАЛЬНОЕ ОКНО СПЕЦИФИКАЦИИ ДОКУМЕНТА ================= */}
       {selectedDoc && (() => {
         const isMediaContent = selectedDoc.doc_type === 'media' || selectedDoc.file_name?.match(/\.(jpeg|jpg|gif|png|webp|pdf)$/i);
-        
+        const badgeStyle = getDocBadgeStyle(selectedDoc);
+
         const driveId = selectedDoc.file_url?.includes('file/d/') 
           ? selectedDoc.file_url.match(/file\/d\/([^/]+)/)?.[1] 
           : (selectedDoc.file_url?.includes('id=') ? selectedDoc.file_url.match(/id=([^&]+)/)?.[1] : null);
@@ -1218,7 +1216,7 @@ export default function App() {
               
               <div className="p-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 flex items-center justify-between transition-colors duration-300">
                 <div className="min-w-0 flex-1 pr-3">
-                  <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border uppercase tracking-wider ${getDocBadgeStyle(selectedDoc)}`}>
+                  <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border uppercase tracking-wider ${badgeStyle.className}`}>
                     {getPromoNumber(selectedDoc)}
                   </span>
                   <h2 className="text-xs font-bold text-slate-900 dark:text-slate-100 mt-0.5 truncate">{selectedDoc.file_name}</h2>
@@ -1444,7 +1442,7 @@ export default function App() {
                       >
                         <div className="space-y-0.5 min-w-0 flex-1 pr-16">
                           <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className={`text-[8px] font-black px-1.5 py-0.5 rounded border transition-colors duration-300 ${getDocBadgeStyle(doc)}`}>
+                            <span className={`text-[8px] font-bold px-1 rounded border ${getDocBadgeStyle(doc).className}`}>
                               {getPromoNumber(doc)}
                             </span>
                             {(doc.doc_type === 'gift' || doc.doc_type === 'media') && (
