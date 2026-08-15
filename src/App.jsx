@@ -50,6 +50,7 @@ export default function App() {
   const [priceHistory, setPriceHistory] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [activeDocId, setActiveDocId] = useState(null);
+  const [selectedDocIds, setSelectedDocIds] = useState([]); // <-- ДОБАВИТЬ ЭТУ СТРОКУ
   const [activeItemName, setActiveItemName] = useState(null);
   const [copiedId, setCopiedId] = useState(null);
 
@@ -272,6 +273,7 @@ export default function App() {
     if (!user) return;
     initPushNotifications(user);
     setDocuments([]); 
+    setSelectedDocIds([]); // <-- ДОБАВИТЬ ЭТУ СТРОКУ
     fetchDocuments();
     updateTabCounters();
 
@@ -633,6 +635,60 @@ export default function App() {
     } catch (err) { console.error("Ошибка подгрузки остатков:", err.message); }
   };
 
+  // Обработчик клика по карточке (обычный клик открывает документ, с Ctrl/Cmd - выделяет)
+  const handleDocCardClick = (e, doc) => {
+    const isMultiKey = e.ctrlKey || e.metaKey;
+
+    if (isMultiKey) {
+      e.preventDefault();
+      setSelectedDocIds(prev => 
+        prev.includes(doc.id) ? prev.filter(id => id !== doc.id) : [...prev, doc.id]
+      );
+    } else {
+      // Если есть уже выделенные через Ctrl/Cmd элементы, обычный клик сбрасывает их и открывает модалку
+      if (selectedDocIds.length > 0) {
+        setSelectedDocIds([]);
+      }
+      openDocDetails(doc);
+    }
+  };
+
+  // Чекбокс-клик или отдельный тогл
+  const toggleDocSelection = (e, docId) => {
+    e.stopPropagation();
+    setSelectedDocIds(prev => 
+      prev.includes(docId) ? prev.filter(id => id !== docId) : [...prev, docId]
+    );
+  };
+
+  // Выполнение массового статуса
+  const executeBatchStatusChange = async (targetStatus = 'processed') => {
+    if (selectedDocIds.length === 0) return;
+    const activeBranch = getActiveBranch();
+
+    const updatePayload = {
+      status: targetStatus,
+      processed_by_iin: user.iin,
+      processed_at: new Date().toISOString()
+    };
+
+    try {
+      const { error } = await supabase
+        .from('document_branch_statuses')
+        .update(updatePayload)
+        .in('document_id', selectedDocIds)
+        .eq('branch', activeBranch);
+
+      if (error) throw error;
+      setSelectedDocIds([]);
+      fetchDocuments();
+      updateTabCounters();
+    } catch (err) {
+      alert("Ошибка массового обновления: " + err.message);
+    }
+  };
+
+
   const executeStatusChange = async () => {
     const { type, docId } = confirmModal;
     const activeBranch = getActiveBranch();
@@ -886,7 +942,7 @@ export default function App() {
       {/* ================= ЛЕНТА КАРТОЧЕК ДОКУМЕНТОВ ================= */}
       <main 
         key={currentTab} 
-        className="p-4 flex-1 overflow-y-auto overscroll-y-contain max-w-3xl mx-auto w-full animate-fade-in"
+        className="p-4 flex-1 overflow-y-auto overscroll-y-contain max-w-3xl mx-auto w-full animate-fade-in relative"
       >
         {currentTab === 'statement' ? (
           <div className="space-y-3 pb-4 pt-1.5">
@@ -948,55 +1004,97 @@ export default function App() {
         ) : documents.length === 0 ? (
           <div className="text-center py-8 bg-white dark:bg-slate-900 border dark:border-slate-800 rounded-xl text-xs text-slate-400 font-medium transition-colors duration-300">Список пуст</div>
         ) : (
-          <div className="space-y-1.5 pb-4">
-            {documents.map(doc => (
-              <div
-                key={doc.id}
-                onClick={() => openDocDetails(doc)}
-                className={`p-2.5 rounded-lg border flex items-center justify-between gap-3 active:scale-[0.97] transition-[transform,background-color,border-color] duration-100 ease-out shadow-2xs relative cursor-pointer ${
-                  activeDocId === doc.id 
-                    ? 'bg-blue-50/50 dark:bg-blue-950/20 border-blue-400 dark:border-blue-800 border-l-4 border-l-blue-500 pl-2' 
-                    : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'
-                }`}
-              >
-                <div className="space-y-0.5 min-w-0 flex-1 pr-16">
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <span className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[8px] font-bold px-1 rounded border dark:border-slate-700 transition-colors duration-300">
-                      {doc.promo_number || 'АКЦИЯ'}
-                    </span>
-                    {(doc.doc_type === 'gift' || doc.doc_type === 'media') && currentTab !== 'processed' && (
-                      <span className="bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 text-[8px] font-black px-1 rounded border border-purple-200 dark:border-purple-900">
-                        Подарок / Комплект
-                      </span>
-                    )}
-                    <span className="text-[9px] text-slate-400 font-medium">{doc.dept}</span>
-                  </div>
-                  <h3 className="font-normal text-slate-700 dark:text-slate-200 text-xs sm:text-sm truncate transition-colors duration-300">{doc.file_name}</h3>
-                  
-                  <div className="flex flex-wrap gap-x-2 text-[9px] pt-0.5">
-                    {!doc.hasStockInBranch && doc.computedStatus === 'new' && doc.doc_type !== 'media' ? (
-                      <span className="text-amber-600 dark:text-amber-400 font-bold bg-amber-50 dark:bg-amber-950/30 px-1 rounded transition-colors duration-300">Нет в наличии</span>
-                    ) : (
-                      <div className="text-slate-400 dark:text-slate-500 flex flex-wrap gap-x-2">
-                        {doc.processed_by?.full_name && (
-                          <span>Оформил: {doc.processed_by.full_name} {doc.processed_at && `— ${formatCardDate(doc.processed_at)}`}</span>
-                        )}
-                        {doc.completed_by?.full_name && (
-                          <span>Закрыл: {doc.completed_by.full_name} {doc.completed_at && `— ${formatCardDate(doc.completed_at)}`}</span>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
+          <div className="space-y-1.5 pb-20">
+            {documents.map(doc => {
+              const isSelected = selectedDocIds.includes(doc.id);
 
-                <div className="absolute top-2.5 right-2.5 text-[9px] text-slate-400 dark:text-slate-500 font-medium bg-transparent px-1 py-0.5">
-                  <span>{formatCardDate(doc.created_at)}</span>
+              return (
+                <div
+                  key={doc.id}
+                  onClick={(e) => handleDocCardClick(e, doc)}
+                  className={`p-2.5 rounded-lg border flex items-center justify-between gap-3 active:scale-[0.99] transition-all duration-150 ease-out shadow-2xs relative cursor-pointer ${
+                    isSelected
+                      ? 'bg-blue-100/70 dark:bg-blue-900/30 border-blue-500 ring-2 ring-blue-400/40 pl-2.5'
+                      : activeDocId === doc.id 
+                        ? 'bg-blue-50/50 dark:bg-blue-950/20 border-blue-400 dark:border-blue-800 border-l-4 border-l-blue-500 pl-2' 
+                        : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
+                  }`}
+                >
+                  <div className="space-y-0.5 min-w-0 flex-1 pr-16">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {/* Чекбокс выделения при мультиселекте */}
+                      {selectedDocIds.length > 0 && (
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={(e) => toggleDocSelection(e, doc.id)}
+                          onClick={(e) => e.stopPropagation()}
+                          className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-0 cursor-pointer mr-0.5"
+                        />
+                      )}
+                      <span className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[8px] font-bold px-1 rounded border dark:border-slate-700 transition-colors duration-300">
+                        {doc.promo_number || 'АКЦИЯ'}
+                      </span>
+                      {(doc.doc_type === 'gift' || doc.doc_type === 'media') && currentTab !== 'processed' && (
+                        <span className="bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 text-[8px] font-black px-1 rounded border border-purple-200 dark:border-purple-900">
+                          Подарок / Комплект
+                        </span>
+                      )}
+                      <span className="text-[9px] text-slate-400 font-medium">{doc.dept}</span>
+                    </div>
+                    <h3 className="font-normal text-slate-700 dark:text-slate-200 text-xs sm:text-sm truncate transition-colors duration-300">{doc.file_name}</h3>
+                    
+                    <div className="flex flex-wrap gap-x-2 text-[9px] pt-0.5">
+                      {!doc.hasStockInBranch && doc.computedStatus === 'new' && doc.doc_type !== 'media' ? (
+                        <span className="text-amber-600 dark:text-amber-400 font-bold bg-amber-50 dark:bg-amber-950/30 px-1 rounded transition-colors duration-300">Нет в наличии</span>
+                      ) : (
+                        <div className="text-slate-400 dark:text-slate-500 flex flex-wrap gap-x-2">
+                          {doc.processed_by?.full_name && (
+                            <span>Оформил: {doc.processed_by.full_name} {doc.processed_at && `— ${formatCardDate(doc.processed_at)}`}</span>
+                          )}
+                          {doc.completed_by?.full_name && (
+                            <span>Закрыл: {doc.completed_by.full_name} {doc.completed_at && `— ${formatCardDate(doc.completed_at)}`}</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="absolute top-2.5 right-2.5 text-[9px] text-slate-400 dark:text-slate-500 font-medium bg-transparent px-1 py-0.5">
+                    <span>{formatCardDate(doc.created_at)}</span>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
             <div className="text-center pt-5 pb-3 text-slate-300 dark:text-slate-800 text-[10px] font-medium tracking-widest select-none">
               • КОНЕЦ СПИСКА •
             </div>
+          </div>
+        )}
+
+        {/* ПЛАВАЮЩАЯ ПАНЕЛЬ МАССОВОГО ОФОРМЛЕНИЯ ПРИ ВЫДЕЛЕНИИ ЧЕРЕЗ CTRL/CMD + КЛИК */}
+        {selectedDocIds.length > 0 && (
+          <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-30 bg-slate-900/90 dark:bg-slate-800/95 text-white px-4 py-2.5 rounded-2xl shadow-2xl backdrop-blur-md flex items-center gap-3 border border-slate-700/50 animate-in fade-in slide-in-from-bottom-5 duration-200">
+            <span className="text-xs font-semibold text-slate-200 whitespace-nowrap">
+              Выбрано: <strong className="text-white font-black">{selectedDocIds.length}</strong>
+            </span>
+            
+            <div className="h-4 w-px bg-slate-700" />
+
+            <button
+              onClick={() => executeBatchStatusChange('processed')}
+              className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-xl shadow-md transition active:scale-95 whitespace-nowrap"
+            >
+              Оформить выделенные ({selectedDocIds.length})
+            </button>
+
+            <button
+              onClick={() => setSelectedDocIds([])}
+              className="p-1 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition"
+              title="Сбросить выделение"
+            >
+              <IconClose />
+            </button>
           </div>
         )}
       </main>
