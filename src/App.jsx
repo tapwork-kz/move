@@ -72,73 +72,79 @@ export default function App() {
     return selectedBranch || 'rozybakieva';
   };
 
-  // Определение визуального стиля бейджа номера: Зеленый (Переоценка), Желтый (Корректировка), Синий (Новая)
-  const getDocBadgeStyle = (doc) => {
-    const isReval = doc?.doc_type === 'revaluation' || String(doc?.file_name || '').toLowerCase().includes('переоценк');
-    if (isReval) {
-      return 'bg-emerald-50 text-emerald-700 border-emerald-400 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-500';
+  // Проверка: есть ли в документе измененные строки (green, red, yellow) или пометка "корректировка"
+  const hasModifiedItemsOrCorrection = (doc) => {
+    const isCorrText = `${doc?.file_name || ''} ${doc?.promo_number || ''}`.toLowerCase();
+    if (isCorrText.includes('корректировк') || isCorrText.includes('корр.') || isCorrText.includes('корр ') || isCorrText.includes('коррекция')) {
+      return true;
     }
-
-    // Корректировка: если хотя бы одна строка помечена как добавленная/удаленная/измененная
-    const hasColoredItems = Array.isArray(doc?.document_items) && doc.document_items.some(
-      item => item.change_type === 'green' || item.change_type === 'red' || item.change_type === 'yellow'
-    );
-    const fileName = String(doc?.file_name || '').toLowerCase();
-    const isCorrection = hasColoredItems || fileName.includes('корректировк') || fileName.includes('корр.') || fileName.includes('корр ');
-
-    if (isCorrection) {
-      return 'bg-amber-50 text-amber-700 border-amber-400 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-500';
+    if (doc?.document_items && Array.isArray(doc.document_items)) {
+      return doc.document_items.some(item => 
+        item.change_type === 'green' || item.change_type === 'red' || item.change_type === 'yellow'
+      );
     }
-
-    // Обычная новая акция (без изменений в позициях)
-    return 'bg-blue-50 text-blue-700 border-blue-400 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-500';
+    return false;
   };
 
-  // Продвинутый парсер номера акции без мусора и слова "ЗАПУСК"
+  // Определение стиля бейджа номера документа
+  const getDocBadgeStyle = (doc) => {
+    if (doc?.doc_type === 'revaluation') {
+      return 'bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-500';
+    }
+    if (hasModifiedItemsOrCorrection(doc)) {
+      return 'bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-500';
+    }
+    return 'bg-blue-50 text-blue-700 border-blue-300 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-500';
+  };
+
+  // Глубокий парсер для извлечения номера акции без "ЗАПУСК" и мусора
   const getPromoNumber = (doc) => {
     let raw = String(doc?.promo_number || '').trim();
 
-    // Очищаем служебные слова
     raw = raw
       .replace(/запуск\s*[-_:]?\s*/gi, '')
-      .replace(/ввод\s*[-_:]?\s*/gi, '')
       .replace(/акция\s*[-_:]?\s*/gi, '')
       .replace(/промо\s*[-_:]?\s*/gi, '')
-      .replace(/спецификация\s*[-_:]?\s*/gi, '')
       .trim();
 
     if (raw && raw !== 'null' && raw !== 'undefined' && raw !== '') {
-      const matchNum = raw.match(/[A-Za-z0-9\-\/]+/);
-      if (matchNum) {
-        return `№${matchNum[0].replace(/^№+/, '')}`;
+      const matchNum = raw.match(/(?:№|#)?\s*([A-Za-z0-9\-\/]+)/);
+      if (matchNum && matchNum[1]) {
+        return `№${matchNum[1].replace(/^№+/, '')}`;
       }
     }
 
     const fileName = String(doc?.file_name || '');
-    const cleanedFileName = fileName
-      .replace(/запуск\s*[-_:]?\s*/gi, '')
-      .replace(/ввод\s*[-_:]?\s*/gi, '');
+    const cleaned = fileName.replace(/запуск\s*[-_:]?\s*/gi, '').trim();
 
-    // 1. Поиск по маркерам №, #, Промо, Акция
-    const matchNo = cleanedFileName.match(/(?:№|#|промо\s*№?|акция\s*№?)\s*([A-Za-z0-9\-\/]+)/i);
-    if (matchNo && matchNo[1]) return `№${matchNo[1].replace(/^№+/, '')}`;
+    // 1. Поиск по префиксам: №1234, #1234, Промо 1234, Акция 1234, Корректировка 1234, PR-1234
+    const matchPrefix = cleaned.match(/(?:№|#|промо|акция|корректировка|корр|pr|id)\s*[-_№#:]?\s*([A-Za-z0-9\-\/]+)/i);
+    if (matchPrefix && matchPrefix[1] && !/^\d{1,2}\.\d{1,2}/.test(matchPrefix[1])) {
+      return `№${matchPrefix[1]}`;
+    }
 
-    // 2. Номер в скобках [123] или (123)
-    const matchBracket = cleanedFileName.match(/[\[\(]([A-Za-z0-9\-\/]{2,12})[\]\)]/);
-    if (matchBracket && matchBracket[1]) return `№${matchBracket[1].replace(/^№+/, '')}`;
+    // 2. Поиск числа в скобках [12345] или (12345)
+    const matchBracket = cleaned.match(/[\[\(]([A-Za-z0-9\-\/]{3,10})[\]\)]/);
+    if (matchBracket && matchBracket[1]) {
+      return `№${matchBracket[1]}`;
+    }
 
-    // 3. Номер в начале строки
-    const matchDigits = cleanedFileName.match(/^(\d{2,8}(?:[\/-]\d{1,4})?)\b/);
-    if (matchDigits && matchDigits[1]) return `№${matchDigits[1]}`;
+    // 3. Поиск 3-8 цифр в начале названия файла (например, 240816_...)
+    const matchStartDigits = cleaned.match(/^(\d{3,8})\b/);
+    if (matchStartDigits && matchStartDigits[1]) {
+      return `№${matchStartDigits[1]}`;
+    }
 
-    // 4. Номер в формате 123/24 или 123-24 в любом месте названия
-    const matchCompound = cleanedFileName.match(/\b(\d{2,6}[\/-]\d{1,4})\b/);
-    if (matchCompound && matchCompound[1]) return `№${matchCompound[1]}`;
+    // 4. Поиск изолированного номера внутри названия файла
+    const matchIsolatedDigits = cleaned.match(/(?:^|\s)(\d{4,7})(?:\s|$|_|-|\.)/);
+    if (matchIsolatedDigits && matchIsolatedDigits[1]) {
+      return `№${matchIsolatedDigits[1]}`;
+    }
 
-    return 'АКЦИЯ';
+    return doc?.doc_type === 'revaluation' ? 'ПЕРЕОЦЕНКА' : 'АКЦИЯ';
   };
 
-  // Безопасная проверка соответствия отдела пользователя
+  // Безопасная проверка отдела
   const matchesUserDept = (docDept, currentUser, filterDept) => {
     const docD = String(docDept || '').toLowerCase();
     
@@ -382,7 +388,7 @@ export default function App() {
     return () => window.removeEventListener('focus', handleWindowFocus);
   }, [currentTab, selectedDept, searchQuery, dateFilter, monthFilter, promoSubTab, giftsSubTab, user, selectedBranch]);
 
-  // Глубокий, точный пересчет счетчиков со всеми вкладками (включая Завершенные)
+  // Глубокий, автономный пересчет счетчиков со всеми документами из БД
   const updateTabCounters = async () => {
     if (!user) return;
     try {
@@ -393,7 +399,7 @@ export default function App() {
         .select(`
           id, dept, doc_type, file_name, period_end, promo_number,
           document_branch_statuses!inner(status, branch), 
-          document_items(normalized_name, change_type)
+          document_items(normalized_name, is_in_stock, change_type)
         `)
         .eq('document_branch_statuses.branch', activeBranch);
 
@@ -404,7 +410,6 @@ export default function App() {
 
       const visibleDocs = docsData.filter(doc => matchesUserDept(doc.dept, user, selectedDept));
 
-      // Собираем остатки активного филиала
       let branchStockMap = {};
       const { data: invData } = await supabase
         .from('inventory')
@@ -423,6 +428,7 @@ export default function App() {
         });
       }
 
+      // Документ в наличии, если есть хотя бы 1 остаток в этом филиале
       const checkDocStockInBranch = (doc) => {
         if (!doc.document_items || doc.document_items.length === 0) return true;
         return doc.document_items.some(item => {
@@ -443,15 +449,15 @@ export default function App() {
         const inStock = checkDocStockInBranch(doc);
         const isMedia = doc.doc_type === 'media';
         const isGift = doc.doc_type === 'gift';
-        const fileName = String(doc.file_name || '').toLowerCase();
-        const isCorrection = fileName.includes('корректировк') || fileName.includes('корр.');
+        const isCorr = hasModifiedItemsOrCorrection(doc);
 
         let computedStatus = branchStatus;
-        if (doc.period_end && doc.period_end < todayStr && !isCorrection) {
+        if (doc.period_end && doc.period_end < todayStr && !isCorr) {
           if (branchStatus === 'new' && !inStock) computedStatus = 'archive';
           else if (branchStatus === 'processed') computedStatus = 'completed';
         }
 
+        // По старой логике: если товара нет в наличии, он не попадает в "Новые", а идет в оформленные/завершенные/архив
         if (isGift || isMedia) {
           if (branchStatus === 'new' && (isMedia || inStock)) {
             counts.gifts++;
@@ -461,12 +467,11 @@ export default function App() {
             counts.archive++;
           }
         } else {
-          // Только если есть в наличии в филиале — идет в новые
           if (computedStatus === 'new' && inStock) {
             counts.new++;
           } else if (computedStatus === 'completed') {
             counts.completed++;
-          } else if (computedStatus === 'archive') {
+          } else if (computedStatus === 'archive' || (doc.period_end && doc.period_end < todayStr && !inStock)) {
             counts.archive++;
           }
         }
@@ -597,10 +602,9 @@ export default function App() {
         const currentBranchStatus = branchStatusObj?.status || 'new';
         const inStockInBranch = checkDocStock(doc);
         let s = currentBranchStatus;
-        const fileName = String(doc.file_name || '').toLowerCase();
-        const isCorrection = fileName.includes('корректировк') || fileName.includes('корр.');
+        const isCorr = hasModifiedItemsOrCorrection(doc);
 
-        if (doc.period_end && doc.period_end < todayStr && !isCorrection) {
+        if (doc.period_end && doc.period_end < todayStr && !isCorr) {
           if (currentBranchStatus === 'new' && !inStockInBranch) s = 'archive';
           else if (currentBranchStatus === 'processed') s = 'completed';
         }
@@ -620,10 +624,10 @@ export default function App() {
       let finalDocs = [];
       if (currentTab === 'new') {
         if (promoSubTab === 'new') {
-          // Старая логика: В "Новые" попадают ТОЛЬКО документы, которые есть в наличии в этом подразделении
+          // По старой проверенной логике: в "Новые" попадают только те, что реально есть в наличии
           finalDocs = mapped.filter(doc => doc.computedStatus === 'new' && doc.hasStockInBranch && doc.doc_type !== 'gift' && doc.doc_type !== 'media');
         } else {
-          // В "Оформленные" попадают оформленные ЛИБО те, которых нет в наличии в этом подразделении
+          // Если товара нет в наличии или он оформлен — уходит в "Оформленные"
           finalDocs = mapped.filter(doc => ((doc.computedStatus === 'processed') || (doc.computedStatus === 'new' && !doc.hasStockInBranch)) && doc.doc_type !== 'gift' && doc.doc_type !== 'media');
         }
       } else if (currentTab === 'gifts') {
@@ -649,7 +653,7 @@ export default function App() {
     }
   };
 
-  // Детали документа: строгая привязка остатков (склад + витрина) к выбранному филиалу
+  // Детали документа: строгая привязка остатков (склад + витрина) к выбранному филиалу из БД inventory
   const openDocDetails = async (doc) => {
     setActiveDocId(doc.id);
     setSelectedDoc(doc);
@@ -713,6 +717,7 @@ export default function App() {
     }
   };
 
+  // Обработчик клика по карточке (обычный клик открывает документ, с Ctrl/Cmd - выделяет)
   const handleDocCardClick = (e, doc) => {
     const isMultiKey = e.ctrlKey || e.metaKey;
 
@@ -1439,7 +1444,7 @@ export default function App() {
                       >
                         <div className="space-y-0.5 min-w-0 flex-1 pr-16">
                           <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className={`text-[8px] font-black px-1 rounded border ${getDocBadgeStyle(doc)}`}>
+                            <span className={`text-[8px] font-black px-1.5 py-0.5 rounded border transition-colors duration-300 ${getDocBadgeStyle(doc)}`}>
                               {getPromoNumber(doc)}
                             </span>
                             {(doc.doc_type === 'gift' || doc.doc_type === 'media') && (
