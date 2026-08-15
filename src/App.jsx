@@ -283,6 +283,7 @@ export default function App() {
     return () => window.removeEventListener('focus', handleWindowFocus);
   }, [currentTab, selectedDept, searchQuery, dateFilter, monthFilter, promoSubTab, giftsSubTab, user, selectedBranch]);
 
+  // Полностью изолированный расчет бейджей/счетчиков по подразделениям и БД inventory
   const updateTabCounters = async () => {
     if (!user) return;
     try {
@@ -291,7 +292,7 @@ export default function App() {
       let query = supabase.from('documents').select(`
         id, dept, doc_type, file_name, period_end, 
         document_branch_statuses!inner(status, branch), 
-        document_items(normalized_name, is_in_stock)
+        document_items(normalized_name)
       `).eq('document_branch_statuses.branch', activeBranch);
 
       const userDepts = Array.isArray(user.dept) ? user.dept : (user.dept ? [user.dept] : []);
@@ -307,6 +308,7 @@ export default function App() {
       const { data: docsData, error } = await query;
       if (error || !docsData) return;
 
+      // 1. Собираем уникальные номенклатуры
       const allNormalizedNames = new Set();
       docsData.forEach(doc => {
         if (doc.document_items) {
@@ -316,6 +318,7 @@ export default function App() {
         }
       });
 
+      // 2. Получаем остатки строго для активного подразделения
       let branchStockMap = {};
       if (allNormalizedNames.size > 0) {
         const { data: invData } = await supabase
@@ -334,9 +337,10 @@ export default function App() {
         }
       }
 
+      // 3. Наличие строго по текущей точке (без привязки к флагам документа)
       const checkDocStockInBranch = (doc) => {
         if (!doc.document_items || doc.document_items.length === 0) return true;
-        return doc.document_items.some(item => branchStockMap[item.normalized_name] === true || item.is_in_stock === true);
+        return doc.document_items.some(item => branchStockMap[item.normalized_name] === true);
       };
 
       const todayStr = new Date().toISOString().split('T')[0];
@@ -349,17 +353,17 @@ export default function App() {
 
         const currentBranchStatus = branchStatusObj?.status || 'new';
         const inStockInBranch = checkDocStockInBranch(doc);
-        if (doc.doc_type !== 'media' && !inStockInBranch) return;
-
-        let computedStatus = currentBranchStatus;
         const isCorrection = doc.file_name ? doc.file_name.toLowerCase().includes('корректировк') : false;
 
+        let computedStatus = currentBranchStatus;
         if (doc.period_end && doc.period_end < todayStr && !isCorrection) {
           if (currentBranchStatus === 'new' && !inStockInBranch) computedStatus = 'archive';
           else if (currentBranchStatus === 'processed') computedStatus = 'completed';
         }
 
+        // Подсчет бейджей для активных вкладок
         if (doc.doc_type === 'gift' || doc.doc_type === 'media') {
+          // Вкладка Подарки/Комплекты: считаем только новые, которые есть в наличии в точке (или медиа)
           if (currentBranchStatus === 'new' && (doc.doc_type === 'media' || inStockInBranch)) {
             counts.gifts++; 
           } else if (computedStatus === 'completed') {
@@ -368,6 +372,7 @@ export default function App() {
             counts.archive++;
           }
         } else {
+          // Вкладка Акции: считаем только новые, товары которых физически есть в наличии в выбранном филиале
           if (computedStatus === 'new' && inStockInBranch) {
             counts.new++; 
           } else if (computedStatus === 'completed') {
