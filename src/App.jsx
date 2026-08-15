@@ -49,7 +49,6 @@ export default function App() {
   const [selectedHistoryItem, setSelectedHistoryItem] = useState(null);
   const [priceHistory, setPriceHistory] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
-  
   const [activeDocId, setActiveDocId] = useState(null);
   const [selectedDocIds, setSelectedDocIds] = useState([]);
   const [activeItemName, setActiveItemName] = useState(null);
@@ -73,17 +72,52 @@ export default function App() {
     return selectedBranch || 'rozybakieva';
   };
 
-  // Извлечение номера акции, если колонка promo_number пуста
-  const extractPromoNumber = (doc) => {
-    if (doc?.promo_number && String(doc.promo_number).trim() !== '') {
-      return String(doc.promo_number).trim();
+  // Интеллектуальное извлечение и форматирование номера акции
+  const getPromoNumber = (doc) => {
+    if (doc?.promo_number && String(doc.promo_number).trim() !== '' && String(doc.promo_number).trim() !== 'null') {
+      const raw = String(doc.promo_number).trim();
+      return raw.startsWith('№') ? raw : `№${raw}`;
     }
-    const textToScan = `${doc?.file_name || ''} ${doc?.description || ''}`;
-    const match = textToScan.match(/(?:№|№\s*|акци[яи]\s*(?:№)?)\s*(\d+[-\w\/]*)/i);
-    if (match && match[1]) {
-      return `№ ${match[1]}`;
-    }
+    const fileName = doc?.file_name || '';
+    
+    // Ищем паттерны вида №12345, № 12345, #12345, Промо 12345, Акция 12345
+    const matchNo = fileName.match(/(?:№|#|промо\s*№?|акция\s*№?)\s*([A-Za-z0-9\-\/]+)/i);
+    if (matchNo && matchNo[1]) return `№${matchNo[1]}`;
+
+    // Ищем числовой префикс в начале строки (например, 240815_Название)
+    const matchDigits = fileName.match(/^(\d{3,8})\b/);
+    if (matchDigits && matchDigits[1]) return `№${matchDigits[1]}`;
+
+    // Ищем номер в скобках [12345]
+    const matchBracket = fileName.match(/\[([A-Za-z0-9\-\/]+)\]/);
+    if (matchBracket && matchBracket[1]) return `№${matchBracket[1]}`;
+
     return 'АКЦИЯ';
+  };
+
+  // Безопасная проверка соответствия отдела пользователя
+  const matchesUserDept = (docDept, currentUser, filterDept) => {
+    if (filterDept) {
+      return docDept === filterDept;
+    }
+    if (!currentUser) return true;
+    const hasAllAccess = currentUser.role === 'Директор' || 
+                         currentUser.role === 'Супервайзер' || 
+                         currentUser.role === 'Инфо-консультант' || 
+                         currentUser.dept === 'ALL' || 
+                         (Array.isArray(currentUser.dept) && currentUser.dept.includes('ALL'));
+
+    if (hasAllAccess) return true;
+
+    const userDepts = Array.isArray(currentUser.dept) ? currentUser.dept : (currentUser.dept ? [currentUser.dept] : []);
+    if (userDepts.length === 0) return true;
+
+    // Проверяем совпадение по подстроке отдела или "Другое"
+    const docD = String(docDept || '').toLowerCase();
+    return userDepts.some(d => {
+      const clean = String(d).replace(/[#🟠🟢🟡🔵]/g, '').trim().toLowerCase();
+      return clean && docD.includes(clean);
+    }) || docD.includes('другое');
   };
 
   const copyToClipboard = (e, text, id) => {
@@ -109,7 +143,7 @@ export default function App() {
     };
   }, [selectedDoc]);
 
-  // Загрузка ведомости остатков с подтягиванием цен
+  // Загрузка ведомости остатков с гарантированным подтягиванием цен
   useEffect(() => {
     if (currentTab !== 'statement') return;
     const trimmed = statementQuery.trim();
@@ -160,17 +194,21 @@ export default function App() {
 
               if (priceDocs) {
                 priceDocs.forEach(p => {
-                  if (p.normalized_name && !priceMap[p.normalized_name] && p.price) {
-                    priceMap[p.normalized_name] = p.price;
+                  const key = p.normalized_name?.trim().toLowerCase();
+                  if (key && !priceMap[key] && p.price) {
+                    priceMap[key] = p.price;
                   }
                 });
               }
             }
 
-            const merged = invData.map(item => ({
-              ...item,
-              latest_price: priceMap[item.normalized_name] || '—'
-            }));
+            const merged = invData.map(item => {
+              const key = item.normalized_name?.trim().toLowerCase();
+              return {
+                ...item,
+                latest_price: priceMap[key] || '—'
+              };
+            });
 
             setStatementItems(merged);
           } else {
@@ -299,69 +337,76 @@ export default function App() {
     return () => window.removeEventListener('focus', handleWindowFocus);
   }, [currentTab, selectedDept, searchQuery, dateFilter, monthFilter, promoSubTab, giftsSubTab, user, selectedBranch]);
 
-  // НАДЕЖНЫЙ ПЕРЕСЧЕТ СЧЕТЧИКОВ СТРОГО ДЛЯ ТЕКУЩЕГО ФИЛИАЛА И ПОЛНОЙ ИЗОЛЯЦИЕЙ
+  // Глубокий, автономный и безотказный пересчет бейджей для активного подразделения
   const updateTabCounters = async () => {
     if (!user) return;
     try {
       const activeBranch = getActiveBranch();
 
-      let query = supabase.from('documents').select(`
-        id, dept, doc_type, file_name, promo_number, period_end, 
-        document_branch_statuses!inner(status, branch), 
-        document_items(normalized_name)
-      `).eq('document_branch_statuses.branch', activeBranch);
+      // 1. Получаем документы со статусами для активного филиала
+      const { data: docsData, error } = await supabase
+        .from('documents')
+        .select(`
+          id, dept, doc_type, file_name, period_end, promo_number,
+          document_branch_statuses!inner(status, branch), 
+          document_items(normalized_name)
+        `)
+        .eq('document_branch_statuses.branch', activeBranch);
 
-      const userDepts = Array.isArray(user.dept) ? user.dept : (user.dept ? [user.dept] : []);
-      const hasAllAccess = user.role === 'Директор' || user.role === 'Супервайзер' || user.role === 'Инфо-консультант' || userDepts.includes('ALL');
-
-      if (!hasAllAccess && userDepts.length > 0) {
-        const deptConditions = userDepts.map(d => `dept.ilike.*${d}*`).concat(['dept.ilike.*Другое*']);
-        query = query.or(deptConditions.join(','));
-      } else if (selectedDept) {
-        query = query.eq('dept', selectedDept);
+      if (error || !docsData) {
+        console.error("Ошибка загрузки документов для счетчиков:", error);
+        return;
       }
 
-      const { data: docsData, error } = await query;
-      if (error || !docsData) return;
+      // Фильтруем по отделу пользователя на клиенте (без падения SQL)
+      const visibleDocs = docsData.filter(doc => matchesUserDept(doc.dept, user, selectedDept));
 
-      const allNormalizedNames = new Set();
-      docsData.forEach(doc => {
+      // 2. Собираем уникальные номенклатуры
+      const allNormNames = new Set();
+      visibleDocs.forEach(doc => {
         if (doc.document_items) {
           doc.document_items.forEach(item => {
-            if (item.normalized_name) allNormalizedNames.add(item.normalized_name);
+            if (item.normalized_name) {
+              allNormNames.add(item.normalized_name.trim().toLowerCase());
+            }
           });
         }
       });
 
-      // Карта остатков конкретного магазина
+      // 3. Получаем реальные остатки филиала
       let branchStockMap = {};
-      if (allNormalizedNames.size > 0) {
+      if (allNormNames.size > 0) {
         const { data: invData } = await supabase
           .from('inventory')
           .select('normalized_name, stock_warehouse, stock_showcase')
-          .in('normalized_name', Array.from(allNormalizedNames))
           .eq('branch', activeBranch);
 
         if (invData) {
           invData.forEach(inv => {
-            const totalStock = (inv.stock_warehouse || 0) + (inv.stock_showcase || 0);
-            if (totalStock > 0) {
-              branchStockMap[inv.normalized_name] = true;
+            const key = inv.normalized_name?.trim().toLowerCase();
+            if (key) {
+              const totalStock = (inv.stock_warehouse || 0) + (inv.stock_showcase || 0);
+              if (totalStock > 0) {
+                branchStockMap[key] = true;
+              }
             }
           });
         }
       }
 
-      // Строгое наличие в этом подразделении
       const checkDocStockInBranch = (doc) => {
         if (!doc.document_items || doc.document_items.length === 0) return true;
-        return doc.document_items.some(item => branchStockMap[item.normalized_name] === true);
+        return doc.document_items.some(item => {
+          const key = item.normalized_name?.trim().toLowerCase();
+          return key && branchStockMap[key] === true;
+        });
       };
 
       const todayStr = new Date().toISOString().split('T')[0];
       const counts = { new: 0, completed: 0, gifts: 0, archive: 0 };
 
-      docsData.forEach(doc => {
+      // 4. Корректный подсчет строго для текущего филиала
+      visibleDocs.forEach(doc => {
         const branchStatusObj = Array.isArray(doc.document_branch_statuses) 
           ? doc.document_branch_statuses[0] 
           : doc.document_branch_statuses;
@@ -399,7 +444,7 @@ export default function App() {
 
       setTabCounts(counts);
     } catch (err) { 
-      console.error("Ошибка обновления счетчиков:", err); 
+      console.error("Ошибка пересчета счетчиков:", err); 
     }
   };
 
@@ -418,12 +463,10 @@ export default function App() {
       setCurrentTab(tabOrder[currentIdx + 1]);
       setPromoSubTab('new');
       setGiftsSubTab('new');
-      setSelectedDocIds([]);
     } else if (diff < -70 && currentIdx > 0) {
       setCurrentTab(tabOrder[currentIdx - 1]);
       setPromoSubTab('new');
       setGiftsSubTab('new');
-      setSelectedDocIds([]);
     }
     setTouchStart(null);
   };
@@ -459,18 +502,8 @@ export default function App() {
           processed_by:users!processed_by_iin(full_name),
           completed_by:users!completed_by_iin(full_name)
         ),
-        document_items(price, change_type, raw_name, normalized_name)
+        document_items(price, is_in_stock, change_type, raw_name, normalized_name)
       `).eq('document_branch_statuses.branch', activeBranch);
-
-      const userDepts = Array.isArray(user.dept) ? user.dept : (user.dept ? [user.dept] : []);
-      const hasAllAccess = user.role === 'Директор' || user.role === 'Супервайзер' || user.role === 'Инфо-консультант' || userDepts.includes('ALL');
-
-      if (!hasAllAccess && userDepts.length > 0) {
-        const deptConditions = userDepts.map(d => `dept.ilike.*${d}*`).concat(['dept.ilike.*Другое*']);
-        query = query.or(deptConditions.join(','));
-      } else if (selectedDept) {
-        query = query.eq('dept', selectedDept);
-      }
 
       if (searchQuery) {
         query = query.or(`promo_number.ilike.%${searchQuery}%,file_name.ilike.%${searchQuery}%`);
@@ -497,41 +530,38 @@ export default function App() {
       const { data, error } = await query.order('created_at', { ascending: false });
       if (error) throw error;
 
-      // Получаем остатки исключительно текущего подразделения
-      const allNormalizedNames = new Set();
-      (data || []).forEach(doc => {
-        if (doc.document_items) {
-          doc.document_items.forEach(item => {
-            if (item.normalized_name) allNormalizedNames.add(item.normalized_name);
-          });
-        }
-      });
+      // Клиентская фильтрация по отделу (безопасна к эмодзи)
+      const deptFilteredDocs = (data || []).filter(doc => matchesUserDept(doc.dept, user, selectedDept));
 
+      // Получаем остатки конкретного подразделения
       let branchStockMap = {};
-      if (allNormalizedNames.size > 0) {
-        const { data: invData } = await supabase
-          .from('inventory')
-          .select('normalized_name, stock_warehouse, stock_showcase')
-          .in('normalized_name', Array.from(allNormalizedNames))
-          .eq('branch', activeBranch);
+      const { data: invData } = await supabase
+        .from('inventory')
+        .select('normalized_name, stock_warehouse, stock_showcase')
+        .eq('branch', activeBranch);
 
-        if (invData) {
-          invData.forEach(inv => {
+      if (invData) {
+        invData.forEach(inv => {
+          const key = inv.normalized_name?.trim().toLowerCase();
+          if (key) {
             const totalStock = (inv.stock_warehouse || 0) + (inv.stock_showcase || 0);
             if (totalStock > 0) {
-              branchStockMap[inv.normalized_name] = true;
+              branchStockMap[key] = true;
             }
-          });
-        }
+          }
+        });
       }
 
       const checkDocStock = (doc) => {
         if (!doc.document_items || doc.document_items.length === 0) return true;
-        return doc.document_items.some(item => branchStockMap[item.normalized_name] === true);
+        return doc.document_items.some(item => {
+          const key = item.normalized_name?.trim().toLowerCase();
+          return key && branchStockMap[key] === true;
+        });
       };
 
       const todayStr = new Date().toISOString().split('T')[0];
-      let mapped = (data || []).map(doc => {
+      let mapped = deptFilteredDocs.map(doc => {
         const branchStatusObj = Array.isArray(doc.document_branch_statuses) 
           ? doc.document_branch_statuses[0] 
           : doc.document_branch_statuses;
@@ -548,7 +578,6 @@ export default function App() {
 
         return { 
           ...doc, 
-          promo_number: extractPromoNumber(doc),
           hasStockInBranch: inStockInBranch,
           computedStatus: s,
           status: currentBranchStatus,
@@ -562,7 +591,6 @@ export default function App() {
       let finalDocs = [];
       if (currentTab === 'new') {
         if (promoSubTab === 'new') {
-          // Показываются только те документы, которые реально есть в наличии на этой торговой точке
           finalDocs = mapped.filter(doc => doc.computedStatus === 'new' && doc.hasStockInBranch && doc.doc_type !== 'gift' && doc.doc_type !== 'media');
         } else {
           finalDocs = mapped.filter(doc => ((doc.computedStatus === 'processed') || (doc.computedStatus === 'new' && !doc.hasStockInBranch)) && doc.doc_type !== 'gift' && doc.doc_type !== 'media');
@@ -583,9 +611,14 @@ export default function App() {
       }
 
       setDocuments(finalDocs);
-    } catch (err) { console.error(err.message); } finally { setLoading(false); }
+    } catch (err) { 
+      console.error(err.message); 
+    } finally { 
+      setLoading(false); 
+    }
   };
 
+  // Детали документа: строгая привязка остатков (склад + витрина) к выбранному филиалу из БД inventory
   const openDocDetails = async (doc) => {
     setActiveDocId(doc.id);
     setSelectedDoc(doc);
@@ -612,18 +645,22 @@ export default function App() {
 
           if (!invError && invData) {
             invData.forEach(inv => {
-              const currentWh = invMap[inv.normalized_name]?.wh ?? 0;
-              const currentSc = invMap[inv.normalized_name]?.sc ?? 0;
-              invMap[inv.normalized_name] = {
-                wh: currentWh + (inv.stock_warehouse ?? 0),
-                sc: currentSc + (inv.stock_showcase ?? 0)
-              };
+              const key = inv.normalized_name?.trim().toLowerCase();
+              if (key) {
+                const currentWh = invMap[key]?.wh ?? 0;
+                const currentSc = invMap[key]?.sc ?? 0;
+                invMap[key] = {
+                  wh: currentWh + (inv.stock_warehouse ?? 0),
+                  sc: currentSc + (inv.stock_showcase ?? 0)
+                };
+              }
             });
           }
         }
 
         const enrichedItems = itemsData.map(item => {
-          const stockInfo = invMap[item.normalized_name];
+          const key = item.normalized_name?.trim().toLowerCase();
+          const stockInfo = key ? invMap[key] : null;
           const wh = stockInfo ? stockInfo.wh : 0;
           const sc = stockInfo ? stockInfo.sc : 0;
           const hasBranchStock = (wh + sc) > 0;
@@ -640,9 +677,12 @@ export default function App() {
         return;
       }
       setDocItems(itemsData || []);
-    } catch (err) { console.error("Ошибка подгрузки остатков:", err.message); }
+    } catch (err) { 
+      console.error("Ошибка подгрузки остатков:", err.message); 
+    }
   };
 
+  // Обработчик клика по карточке (обычный клик открывает документ, с Ctrl/Cmd - выделяет)
   const handleDocCardClick = (e, doc) => {
     const isMultiKey = e.ctrlKey || e.metaKey;
 
@@ -666,6 +706,7 @@ export default function App() {
     );
   };
 
+  // Массовое изменение статуса выбранных документов
   const executeBatchStatusChange = async () => {
     if (selectedDocIds.length === 0 || !user) return;
     const activeBranch = getActiveBranch();
@@ -728,9 +769,11 @@ export default function App() {
       if (error) throw error;
       setConfirmModal({ show: false, type: '', docId: null });
       if (selectedDoc) setSelectedDoc(null);
-      await fetchDocuments();
-      await updateTabCounters();
-    } catch (err) { alert(err.message); }
+      fetchDocuments();
+      updateTabCounters();
+    } catch (err) { 
+      alert(err.message); 
+    }
   };
 
   const renderUserDepts = (deptVal) => {
@@ -815,7 +858,7 @@ export default function App() {
     <div 
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
-      className="w-full max-w-full overflow-hidden h-[100dvh] max-h-[100dvh] bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 flex flex-col select-none relative"
+      className="w-full max-w-full overflow-hidden h-[100dvh] max-h-[100dvh] bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 flex flex-col select-none"
     >
       <div className="w-full shrink-0 relative z-30 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-xs transition-colors duration-300">
         
@@ -873,7 +916,7 @@ export default function App() {
             ].map(tab => (
               <button
                 key={tab.id}
-                onClick={() => { setCurrentTab(tab.id); setDateFilter(''); setPromoSubTab('new'); setGiftsSubTab('new'); setSelectedDocIds([]); }}
+                onClick={() => { setCurrentTab(tab.id); setDateFilter(''); setPromoSubTab('new'); setGiftsSubTab('new'); }}
                 className={`relative flex flex-col items-center justify-center pt-2.5 pb-2 rounded-lg transition-[background-color,color] duration-200 ease-out ${currentTab === tab.id ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs' : 'text-slate-500 dark:text-slate-400'}`}
               >
                 {tab.count > 0 && tab.id !== 'archive' && (
@@ -901,7 +944,7 @@ export default function App() {
 
             {currentTab === 'new' && (
               <button 
-                onClick={() => { setPromoSubTab(promoSubTab === 'new' ? 'processed' : 'new'); setDateFilter(''); setMonthFilter(''); setSelectedDocIds([]); }} 
+                onClick={() => { setPromoSubTab(promoSubTab === 'new' ? 'processed' : 'new'); setDateFilter(''); setMonthFilter(''); }} 
                 className={`px-3 py-1.5 text-xs font-bold rounded-lg border transition shadow-2xs whitespace-nowrap ${promoSubTab === 'processed' ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300'}`}
               >
                 {promoSubTab === 'processed' ? 'Оформленные' : 'Новые'}
@@ -910,7 +953,7 @@ export default function App() {
 
             {currentTab === 'gifts' && (
               <button 
-                onClick={() => { setGiftsSubTab(giftsSubTab === 'new' ? 'processed' : 'new'); setDateFilter(''); setMonthFilter(''); setSelectedDocIds([]); }} 
+                onClick={() => { setGiftsSubTab(giftsSubTab === 'new' ? 'processed' : 'new'); setDateFilter(''); setMonthFilter(''); }} 
                 className={`px-3 py-1.5 text-xs font-bold rounded-lg border transition shadow-2xs whitespace-nowrap ${giftsSubTab === 'processed' ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300'}`}
               >
                 {giftsSubTab === 'processed' ? 'Оформленные' : 'Новые'}
@@ -1018,9 +1061,10 @@ export default function App() {
         ) : documents.length === 0 ? (
           <div className="text-center py-8 bg-white dark:bg-slate-900 border dark:border-slate-800 rounded-xl text-xs text-slate-400 font-medium transition-colors duration-300">Список пуст</div>
         ) : (
-          <div className="space-y-1.5 pb-28">
+          <div className="space-y-1.5 pb-24">
             {documents.map(doc => {
               const isSelected = selectedDocIds.includes(doc.id);
+              const displayPromoNumber = getPromoNumber(doc);
 
               return (
                 <div
@@ -1045,8 +1089,8 @@ export default function App() {
                           className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-0 cursor-pointer mr-0.5"
                         />
                       )}
-                      <span className="bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 text-[9px] font-extrabold px-1.5 py-0.5 rounded border border-blue-200 dark:border-blue-800 transition-colors duration-300">
-                        {doc.promo_number}
+                      <span className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[8px] font-bold px-1 rounded border dark:border-slate-700 transition-colors duration-300">
+                        {displayPromoNumber}
                       </span>
                       {(doc.doc_type === 'gift' || doc.doc_type === 'media') && currentTab !== 'processed' && (
                         <span className="bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 text-[8px] font-black px-1 rounded border border-purple-200 dark:border-purple-900">
@@ -1086,9 +1130,9 @@ export default function App() {
         )}
       </main>
 
-      {/* ================= ФИКСИРОВАННАЯ ПЛАВАЮЩАЯ ПАНЕЛЬ МАССОВОГО ОФОРМЛЕНИЯ ================= */}
+      {/* ================= ФИКСИРОВАННАЯ ПЛАВАЮЩАЯ ПАНЕЛЬ МАССОВОГО ДЕЙСТВИЯ ================= */}
       {selectedDocIds.length > 0 && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-slate-900/95 dark:bg-slate-800/95 text-white px-4 py-2.5 rounded-2xl shadow-2xl backdrop-blur-md flex items-center gap-3 border border-slate-700/60 animate-in fade-in slide-in-from-bottom-5 duration-200">
+        <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 bg-slate-900/95 dark:bg-slate-800/95 text-white px-4 py-2.5 rounded-2xl shadow-2xl backdrop-blur-md flex items-center gap-3 border border-slate-700/60 transition-all duration-200">
           <span className="text-xs font-semibold text-slate-200 whitespace-nowrap">
             Выбрано: <strong className="text-white font-black">{selectedDocIds.length}</strong>
           </span>
@@ -1138,7 +1182,7 @@ export default function App() {
               
               <div className="p-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 flex items-center justify-between transition-colors duration-300">
                 <div className="min-w-0 flex-1 pr-3">
-                  <span className="text-[9px] font-extrabold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/50 px-1.5 py-0.5 rounded border border-blue-200 uppercase tracking-wider">{selectedDoc.promo_number}</span>
+                  <span className="text-[9px] font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/50 px-1 py-0.2 rounded border border-blue-200 uppercase tracking-wider">{getPromoNumber(selectedDoc)}</span>
                   <h2 className="text-xs font-bold text-slate-900 dark:text-slate-100 mt-0.5 truncate">{selectedDoc.file_name}</h2>
                 </div>
                 <button onClick={() => setSelectedDoc(null)} className="text-slate-400 hover:text-slate-600 p-1"><IconClose /></button>
@@ -1363,7 +1407,7 @@ export default function App() {
                         <div className="space-y-0.5 min-w-0 flex-1 pr-16">
                           <div className="flex items-center gap-1.5 flex-wrap">
                             <span className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[8px] font-bold px-1 rounded border dark:border-slate-700">
-                              {extractPromoNumber(doc)}
+                              {getPromoNumber(doc)}
                             </span>
                             {(doc.doc_type === 'gift' || doc.doc_type === 'media') && (
                               <span className="bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 text-[8px] font-black px-1 rounded border border-purple-200 dark:border-purple-900">
