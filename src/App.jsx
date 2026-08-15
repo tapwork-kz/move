@@ -72,24 +72,43 @@ export default function App() {
     return selectedBranch || 'rozybakieva';
   };
 
-  // Интеллектуальное извлечение и форматирование номера акции
+  // Проверка, является ли документ корректировкой
+  const isDocCorrection = (doc) => {
+    const text = `${doc?.file_name || ''} ${doc?.promo_number || ''}`.toLowerCase();
+    return text.includes('корректировк') || text.includes('корр.') || text.includes('корр ');
+  };
+
+  // Интеллектуальное извлечение чистого номера акции без мусора и слова "ЗАПУСК"
   const getPromoNumber = (doc) => {
-    if (doc?.promo_number && String(doc.promo_number).trim() !== '' && String(doc.promo_number).trim() !== 'null') {
-      const raw = String(doc.promo_number).trim();
-      return raw.startsWith('№') ? raw : `№${raw}`;
+    let raw = String(doc?.promo_number || '').trim();
+
+    // Очищаем слово "ЗАПУСК" и мусорные префиксы
+    raw = raw
+      .replace(/запуск\s*[-_:]?\s*/gi, '')
+      .replace(/акция\s*[-_:]?\s*/gi, '')
+      .replace(/промо\s*[-_:]?\s*/gi, '')
+      .trim();
+
+    if (raw && raw !== 'null' && raw !== 'undefined' && raw !== '') {
+      // Убираем возможные дубликаты вида "12345 12345" или "№123 №123"
+      const parts = raw.split(/\s+/).filter(Boolean);
+      let cleanNum = parts[0] || raw;
+      cleanNum = cleanNum.replace(/^№+/, '');
+      return `№${cleanNum}`;
     }
+
     const fileName = doc?.file_name || '';
     
-    // Ищем паттерны вида №12345, № 12345, #12345, Промо 12345, Акция 12345
-    const matchNo = fileName.match(/(?:№|#|промо\s*№?|акция\s*№?)\s*([A-Za-z0-9\-\/]+)/i);
+    // Ищем номер в названии файла, игнорируя слово ЗАПУСК
+    const cleanedFileName = fileName.replace(/запуск\s*[-_:]?\s*/gi, '');
+
+    const matchNo = cleanedFileName.match(/(?:№|#|промо\s*№?|акция\s*№?)\s*([A-Za-z0-9\-\/]+)/i);
     if (matchNo && matchNo[1]) return `№${matchNo[1]}`;
 
-    // Ищем числовой префикс в начале строки (например, 240815_Название)
-    const matchDigits = fileName.match(/^(\d{3,8})\b/);
+    const matchDigits = cleanedFileName.match(/^(\d{3,8})\b/);
     if (matchDigits && matchDigits[1]) return `№${matchDigits[1]}`;
 
-    // Ищем номер в скобках [12345]
-    const matchBracket = fileName.match(/\[([A-Za-z0-9\-\/]+)\]/);
+    const matchBracket = cleanedFileName.match(/\[([A-Za-z0-9\-\/]+)\]/);
     if (matchBracket && matchBracket[1]) return `№${matchBracket[1]}`;
 
     return 'АКЦИЯ';
@@ -337,19 +356,18 @@ export default function App() {
     return () => window.removeEventListener('focus', handleWindowFocus);
   }, [currentTab, selectedDept, searchQuery, dateFilter, monthFilter, promoSubTab, giftsSubTab, user, selectedBranch]);
 
-  // Глубокий, автономный и безотказный пересчет бейджей для активного подразделения
+  // Глубокий, автономный пересчет счетчиков со всеми документами из БД
   const updateTabCounters = async () => {
     if (!user) return;
     try {
       const activeBranch = getActiveBranch();
 
-      // 1. Получаем документы со статусами для активного филиала
       const { data: docsData, error } = await supabase
         .from('documents')
         .select(`
           id, dept, doc_type, file_name, period_end, promo_number,
           document_branch_statuses!inner(status, branch), 
-          document_items(normalized_name)
+          document_items(normalized_name, is_in_stock)
         `)
         .eq('document_branch_statuses.branch', activeBranch);
 
@@ -358,54 +376,38 @@ export default function App() {
         return;
       }
 
-      // Фильтруем по отделу пользователя на клиенте (без падения SQL)
       const visibleDocs = docsData.filter(doc => matchesUserDept(doc.dept, user, selectedDept));
 
-      // 2. Собираем уникальные номенклатуры
-      const allNormNames = new Set();
-      visibleDocs.forEach(doc => {
-        if (doc.document_items) {
-          doc.document_items.forEach(item => {
-            if (item.normalized_name) {
-              allNormNames.add(item.normalized_name.trim().toLowerCase());
-            }
-          });
-        }
-      });
-
-      // 3. Получаем реальные остатки филиала
       let branchStockMap = {};
-      if (allNormNames.size > 0) {
-        const { data: invData } = await supabase
-          .from('inventory')
-          .select('normalized_name, stock_warehouse, stock_showcase')
-          .eq('branch', activeBranch);
+      const { data: invData } = await supabase
+        .from('inventory')
+        .select('normalized_name, stock_warehouse, stock_showcase')
+        .eq('branch', activeBranch);
 
-        if (invData) {
-          invData.forEach(inv => {
-            const key = inv.normalized_name?.trim().toLowerCase();
-            if (key) {
-              const totalStock = (inv.stock_warehouse || 0) + (inv.stock_showcase || 0);
-              if (totalStock > 0) {
-                branchStockMap[key] = true;
-              }
+      if (invData) {
+        invData.forEach(inv => {
+          const key = inv.normalized_name?.trim().toLowerCase();
+          if (key) {
+            const totalStock = (inv.stock_warehouse || 0) + (inv.stock_showcase || 0);
+            if (totalStock > 0) {
+              branchStockMap[key] = true;
             }
-          });
-        }
+          }
+        });
       }
 
       const checkDocStockInBranch = (doc) => {
         if (!doc.document_items || doc.document_items.length === 0) return true;
+        // Считаем в наличии, если есть остаток в филиале ИЛИ флаг в документе
         return doc.document_items.some(item => {
           const key = item.normalized_name?.trim().toLowerCase();
-          return key && branchStockMap[key] === true;
+          return (key && branchStockMap[key] === true) || item.is_in_stock === true;
         });
       };
 
       const todayStr = new Date().toISOString().split('T')[0];
       const counts = { new: 0, completed: 0, gifts: 0, archive: 0 };
 
-      // 4. Корректный подсчет строго для текущего филиала
       visibleDocs.forEach(doc => {
         const branchStatusObj = Array.isArray(doc.document_branch_statuses) 
           ? doc.document_branch_statuses[0] 
@@ -415,7 +417,7 @@ export default function App() {
         const inStock = checkDocStockInBranch(doc);
         const isMedia = doc.doc_type === 'media';
         const isGift = doc.doc_type === 'gift';
-        const isCorrection = doc.file_name ? doc.file_name.toLowerCase().includes('корректировк') : false;
+        const isCorrection = isDocCorrection(doc);
 
         let computedStatus = branchStatus;
         if (doc.period_end && doc.period_end < todayStr && !isCorrection) {
@@ -424,19 +426,19 @@ export default function App() {
         }
 
         if (isGift || isMedia) {
-          if (branchStatus === 'new' && (isMedia || inStock)) {
+          if (branchStatus === 'new') {
             counts.gifts++;
           } else if (computedStatus === 'completed') {
             counts.completed++;
-          } else if (computedStatus === 'archive' || (doc.period_end && doc.period_end < todayStr && !inStock && !isMedia)) {
+          } else if (computedStatus === 'archive') {
             counts.archive++;
           }
         } else {
-          if (computedStatus === 'new' && inStock) {
+          if (computedStatus === 'new') {
             counts.new++;
           } else if (computedStatus === 'completed') {
             counts.completed++;
-          } else if (computedStatus === 'archive' || (doc.period_end && doc.period_end < todayStr && !inStock)) {
+          } else if (computedStatus === 'archive') {
             counts.archive++;
           }
         }
@@ -530,10 +532,8 @@ export default function App() {
       const { data, error } = await query.order('created_at', { ascending: false });
       if (error) throw error;
 
-      // Клиентская фильтрация по отделу (безопасна к эмодзи)
       const deptFilteredDocs = (data || []).filter(doc => matchesUserDept(doc.dept, user, selectedDept));
 
-      // Получаем остатки конкретного подразделения
       let branchStockMap = {};
       const { data: invData } = await supabase
         .from('inventory')
@@ -556,7 +556,7 @@ export default function App() {
         if (!doc.document_items || doc.document_items.length === 0) return true;
         return doc.document_items.some(item => {
           const key = item.normalized_name?.trim().toLowerCase();
-          return key && branchStockMap[key] === true;
+          return (key && branchStockMap[key] === true) || item.is_in_stock === true;
         });
       };
 
@@ -569,7 +569,7 @@ export default function App() {
         const currentBranchStatus = branchStatusObj?.status || 'new';
         const inStockInBranch = checkDocStock(doc);
         let s = currentBranchStatus;
-        const isCorrection = doc.file_name ? doc.file_name.toLowerCase().includes('корректировк') : false;
+        const isCorrection = isDocCorrection(doc);
 
         if (doc.period_end && doc.period_end < todayStr && !isCorrection) {
           if (currentBranchStatus === 'new' && !inStockInBranch) s = 'archive';
@@ -591,22 +591,23 @@ export default function App() {
       let finalDocs = [];
       if (currentTab === 'new') {
         if (promoSubTab === 'new') {
-          finalDocs = mapped.filter(doc => doc.computedStatus === 'new' && doc.hasStockInBranch && doc.doc_type !== 'gift' && doc.doc_type !== 'media');
+          // Показываем все новые документы текущего подразделения
+          finalDocs = mapped.filter(doc => doc.computedStatus === 'new' && doc.doc_type !== 'gift' && doc.doc_type !== 'media');
         } else {
-          finalDocs = mapped.filter(doc => ((doc.computedStatus === 'processed') || (doc.computedStatus === 'new' && !doc.hasStockInBranch)) && doc.doc_type !== 'gift' && doc.doc_type !== 'media');
+          finalDocs = mapped.filter(doc => doc.computedStatus === 'processed' && doc.doc_type !== 'gift' && doc.doc_type !== 'media');
         }
       } else if (currentTab === 'gifts') {
         if (giftsSubTab === 'new') {
-          finalDocs = mapped.filter(doc => (doc.doc_type === 'media' || (doc.doc_type === 'gift' && doc.hasStockInBranch)) && doc.status === 'new');
+          finalDocs = mapped.filter(doc => (doc.doc_type === 'media' || doc.doc_type === 'gift') && doc.status === 'new');
         } else {
-          finalDocs = mapped.filter(doc => (doc.doc_type === 'media' || doc.doc_type === 'gift') && (doc.status === 'processed' || (doc.doc_type === 'gift' && !doc.hasStockInBranch && doc.status === 'new')));
+          finalDocs = mapped.filter(doc => (doc.doc_type === 'media' || doc.doc_type === 'gift') && doc.status === 'processed');
         }
       } else if (currentTab === 'completed') {
         finalDocs = mapped.filter(doc => doc.computedStatus === 'completed');
       } else if (currentTab === 'archive') {
         finalDocs = mapped.filter(doc => 
           (doc.computedStatus === 'archive') || 
-          (doc.period_end && doc.period_end < todayStr && !doc.hasStockInBranch && doc.doc_type !== 'media')
+          (doc.period_end && doc.period_end < todayStr && doc.doc_type !== 'media')
         );
       }
 
@@ -1089,7 +1090,11 @@ export default function App() {
                           className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-0 cursor-pointer mr-0.5"
                         />
                       )}
-                      <span className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[8px] font-bold px-1 rounded border dark:border-slate-700 transition-colors duration-300">
+                      <span className={`text-[8px] font-black px-1.5 py-0.5 rounded border transition-colors duration-300 ${
+                        isDocCorrection(doc)
+                          ? 'bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-500'
+                          : 'bg-blue-50 text-blue-700 border-blue-300 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-500'
+                      }`}>
                         {displayPromoNumber}
                       </span>
                       {(doc.doc_type === 'gift' || doc.doc_type === 'media') && currentTab !== 'processed' && (
@@ -1180,9 +1185,14 @@ export default function App() {
           <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-40 flex items-center justify-center p-3 pb-8 sm:p-4 transition-opacity duration-300 ease-out">
             <div className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl max-w-7xl w-full h-[88vh] flex flex-col overflow-hidden border dark:border-slate-800 transition-[transform,opacity] duration-300 cubic-bezier(0.34,1.56,0.64,1) will-change-transform scale-100 animate-in fade-in zoom-in-95">
               
-              <div className="p-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 flex items-center justify-between transition-colors duration-300">
-                <div className="min-w-0 flex-1 pr-3">
-                  <span className="text-[9px] font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/50 px-1 py-0.2 rounded border border-blue-200 uppercase tracking-wider">{getPromoNumber(selectedDoc)}</span>
+              <div className="min-w-0 flex-1 pr-3">
+                  <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border uppercase tracking-wider ${
+                    isDocCorrection(selectedDoc)
+                      ? 'bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-500'
+                      : 'bg-blue-50 text-blue-700 border-blue-300 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-500'
+                  }`}>
+                    {getPromoNumber(selectedDoc)}
+                  </span>
                   <h2 className="text-xs font-bold text-slate-900 dark:text-slate-100 mt-0.5 truncate">{selectedDoc.file_name}</h2>
                 </div>
                 <button onClick={() => setSelectedDoc(null)} className="text-slate-400 hover:text-slate-600 p-1"><IconClose /></button>
