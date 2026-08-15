@@ -562,6 +562,7 @@ export default function App() {
     } catch (err) { console.error(err.message); } finally { setLoading(false); }
   };
 
+  // Детали документа: строгая привязка остатков (склад + витрина) к выбранному филиалу из БД inventory
   const openDocDetails = async (doc) => {
     setActiveDocId(doc.id);
     setSelectedDoc(doc);
@@ -588,23 +589,29 @@ export default function App() {
 
           if (!invError && invData) {
             invData.forEach(inv => {
+              // Суммируем остатки, если по одной нормализации несколько строк
+              const currentWh = invMap[inv.normalized_name]?.wh ?? 0;
+              const currentSc = invMap[inv.normalized_name]?.sc ?? 0;
               invMap[inv.normalized_name] = {
-                wh: inv.stock_warehouse ?? 0,
-                sc: inv.stock_showcase ?? 0
+                wh: currentWh + (inv.stock_warehouse ?? 0),
+                sc: currentSc + (inv.stock_showcase ?? 0)
               };
             });
           }
         }
 
         const enrichedItems = itemsData.map(item => {
-          const wh = invMap[item.normalized_name]?.wh ?? 0;
-          const sc = invMap[item.normalized_name]?.sc ?? 0;
-          const branchHasStock = (wh + sc) > 0;
+          const stockInfo = invMap[item.normalized_name];
+          const wh = stockInfo ? stockInfo.wh : 0;
+          const sc = stockInfo ? stockInfo.sc : 0;
+          const hasBranchStock = (wh + sc) > 0;
+
           return {
             ...item,
             stock_wh: wh,
             stock_sc: sc,
-            is_in_stock: branchHasStock || (invMap[item.normalized_name] === undefined ? item.is_in_stock : branchHasStock)
+            // Наличие строго по текущему филиалу: есть на складе/витрине текущей точки
+            is_in_stock: hasBranchStock
           };
         });
 
