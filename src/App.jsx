@@ -96,10 +96,11 @@ export default function App() {
     if (isDocRevaluation(doc)) {
       return 'bg-emerald-50 text-emerald-700 border-emerald-400 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-500';
     }
+    // Корректировки и любые другие документы, не являющиеся запуском — желтые
     return 'bg-amber-50 text-amber-700 border-amber-400 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-500';
   };
 
-  // Извлечение номера акции (не скрывает документы, если номера нет или он равен "-")
+  // Интеллектуальное извлечение чистого номера акции без мусора и слова "ЗАПУСК"
   const getPromoNumber = (doc) => {
     let raw = String(doc?.promo_number || '').trim();
 
@@ -109,9 +110,9 @@ export default function App() {
       .replace(/промо\s*[-_:]?\s*/gi, '')
       .trim();
 
-    if (raw && raw !== 'null' && raw !== 'undefined' && raw !== '' && raw !== '-') {
+    if (raw && raw !== 'null' && raw !== 'undefined' && raw !== '') {
       const matchNum = raw.match(/[A-Za-z0-9\-\/]+/);
-      if (matchNum && matchNum[0] !== '-') {
+      if (matchNum) {
         return `№${matchNum[0].replace(/^№+/, '')}`;
       }
     }
@@ -120,13 +121,13 @@ export default function App() {
     const cleanedFileName = fileName.replace(/запуск\s*[-_:]?\s*/gi, '');
 
     const matchNo = cleanedFileName.match(/(?:№|#|промо\s*№?|акция\s*№?)\s*([A-Za-z0-9\-\/]+)/i);
-    if (matchNo && matchNo[1] && matchNo[1] !== '-') return `№${matchNo[1]}`;
+    if (matchNo && matchNo[1]) return `№${matchNo[1]}`;
 
     const matchDigits = cleanedFileName.match(/^(\d{3,8})\b/);
     if (matchDigits && matchDigits[1]) return `№${matchDigits[1]}`;
 
     const matchBracket = cleanedFileName.match(/\[([A-Za-z0-9\-\/]+)\]/);
-    if (matchBracket && matchBracket[1] && matchBracket[1] !== '-') return `№${matchBracket[1]}`;
+    if (matchBracket && matchBracket[1]) return `№${matchBracket[1]}`;
 
     return 'АКЦИЯ';
   };
@@ -181,7 +182,7 @@ export default function App() {
     };
   }, [selectedDoc]);
 
-  // Загрузка ведомости остатков с гарантированным подтягиванием ЦЕНЫ (исключая подарки)
+  // Загрузка ведомости остатков с подтягиванием цен
   useEffect(() => {
     if (currentTab !== 'statement') return;
     const trimmed = statementQuery.trim();
@@ -195,57 +196,63 @@ export default function App() {
       try {
         const activeBranch = getActiveBranch();
 
-        const { data: invData, error: invError } = await supabase
-          .from('inventory')
-          .select('id, raw_name, normalized_name, stock_warehouse, stock_showcase')
-          .ilike('raw_name', `%${trimmed}%`)
-          .eq('branch', activeBranch)
-          .limit(80);
-
-        if (invError) throw invError;
-
-        if (invData && invData.length > 0) {
-          const normNames = invData.map(i => i.normalized_name).filter(Boolean);
-
-          let priceMap = {};
-          if (normNames.length > 0) {
-            // Ищем последнюю цену документа, строго исключая подарки и нулевые цены
-            const { data: priceDocs } = await supabase
-              .from('document_items')
-              .select(`
-                normalized_name, price, created_at,
-                documents:document_id(doc_type)
-              `)
-              .in('normalized_name', normNames)
-              .order('created_at', { ascending: false });
-
-            if (priceDocs) {
-              priceDocs.forEach(p => {
-                const key = p.normalized_name?.trim().toLowerCase();
-                const isGift = p.documents?.doc_type === 'gift' || 
-                               String(p.price).toLowerCase().includes('подар') || 
-                               String(p.price).trim() === '0' || 
-                               String(p.price).trim() === '0 ₸';
-
-                // Записываем только реальную денежную цену
-                if (key && !priceMap[key] && p.price && !isGift) {
-                  priceMap[key] = p.price;
-                }
-              });
-            }
-          }
-
-          const merged = invData.map(item => {
-            const key = item.normalized_name?.trim().toLowerCase();
-            return {
-              ...item,
-              latest_price: priceMap[key] || '—'
-            };
+        let rpcSuccess = false;
+        try {
+          const { data, error } = await supabase.rpc('search_inventory_with_prices', {
+            search_query: trimmed,
+            user_branch: activeBranch
           });
+          if (!error && data && data.length > 0) {
+            setStatementItems(data);
+            rpcSuccess = true;
+          }
+        } catch (e) {
+          rpcSuccess = false;
+        }
 
-          setStatementItems(merged);
-        } else {
-          setStatementItems([]);
+        if (!rpcSuccess) {
+          const { data: invData, error: invError } = await supabase
+            .from('inventory')
+            .select('id, raw_name, normalized_name, stock_warehouse, stock_showcase')
+            .ilike('raw_name', `%${trimmed}%`)
+            .eq('branch', activeBranch)
+            .limit(80);
+
+          if (invError) throw invError;
+
+          if (invData && invData.length > 0) {
+            const normNames = invData.map(i => i.normalized_name).filter(Boolean);
+
+            let priceMap = {};
+            if (normNames.length > 0) {
+              const { data: priceDocs } = await supabase
+                .from('document_items')
+                .select('normalized_name, price, created_at')
+                .in('normalized_name', normNames)
+                .order('created_at', { ascending: false });
+
+              if (priceDocs) {
+                priceDocs.forEach(p => {
+                  const key = p.normalized_name?.trim().toLowerCase();
+                  if (key && !priceMap[key] && p.price) {
+                    priceMap[key] = p.price;
+                  }
+                });
+              }
+            }
+
+            const merged = invData.map(item => {
+              const key = item.normalized_name?.trim().toLowerCase();
+              return {
+                ...item,
+                latest_price: priceMap[key] || '—'
+              };
+            });
+
+            setStatementItems(merged);
+          } else {
+            setStatementItems([]);
+          }
         }
       } catch (err) {
         console.error("Ошибка поиска по ведомости:", err.message);
@@ -369,7 +376,7 @@ export default function App() {
     return () => window.removeEventListener('focus', handleWindowFocus);
   }, [currentTab, selectedDept, searchQuery, dateFilter, monthFilter, promoSubTab, giftsSubTab, user, selectedBranch]);
 
-  // Глубокий пересчет счетчиков-бейджей для всех вкладок филиала
+  // Глубокий пересчет счетчиков-бейджей для всех основных вкладок
   const updateTabCounters = async () => {
     if (!user) return;
     try {
@@ -437,24 +444,23 @@ export default function App() {
           else if (branchStatus === 'processed') computedStatus = 'completed';
         }
 
-        // Подсчет Подарков: все активные документы-подарки или медиа в филиале
         if (isGift || isMedia) {
-          if (branchStatus === 'new' || branchStatus === 'processed') {
+          if (branchStatus === 'new' && (isMedia || inStock)) {
             counts.gifts++;
+          } else if (computedStatus === 'completed') {
+            counts.completed++;
+          } else if (computedStatus === 'archive' || (doc.period_end && doc.period_end < todayStr && !inStock && !isMedia)) {
+            counts.archive++;
           }
-        } 
-        // Стандартные акции
-        else {
+        } else {
+          // В новые попадают только те, что в наличии
           if (computedStatus === 'new' && inStock) {
             counts.new++;
+          } else if (computedStatus === 'completed') {
+            counts.completed++;
+          } else if (computedStatus === 'archive' || (doc.period_end && doc.period_end < todayStr && !inStock)) {
+            counts.archive++;
           }
-        }
-
-        // Подсчет Завершенных: общее количество сформированных завершенных документов
-        if (computedStatus === 'completed') {
-          counts.completed++;
-        } else if (computedStatus === 'archive' || (doc.period_end && doc.period_end < todayStr && !inStock && !isMedia)) {
-          counts.archive++;
         }
       });
 
@@ -605,10 +611,10 @@ export default function App() {
       let finalDocs = [];
       if (currentTab === 'new') {
         if (promoSubTab === 'new') {
-          // В новых только те, что строго в наличии
+          // Только в наличии
           finalDocs = mapped.filter(doc => doc.computedStatus === 'new' && doc.hasStockInBranch && doc.doc_type !== 'gift' && doc.doc_type !== 'media');
         } else {
-          // В оформленных — оформленные ЛИБО те, которых нет в наличии
+          // Оформленные ИЛИ те, которых нет в наличии
           finalDocs = mapped.filter(doc => ((doc.computedStatus === 'processed') || (doc.computedStatus === 'new' && !doc.hasStockInBranch)) && doc.doc_type !== 'gift' && doc.doc_type !== 'media');
         }
       } else if (currentTab === 'gifts') {
@@ -936,7 +942,7 @@ export default function App() {
                 className={`relative flex flex-col items-center justify-center pt-2.5 pb-2 rounded-lg transition-[background-color,color] duration-200 ease-out ${currentTab === tab.id ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs' : 'text-slate-500 dark:text-slate-400'}`}
               >
                 {/* Бейджи показываются на всех вкладках, где count > 0 */}
-                {tab.count > 0 && tab.id !== 'statement' && (
+                {tab.count > 0 && tab.id !== 'archive' && tab.id !== 'statement' && (
                   <span className="absolute top-0.5 right-0.5 bg-red-500 text-white text-[8px] font-black h-3.5 min-w-[14px] px-0.5 rounded-full flex items-center justify-center border border-white dark:border-slate-950 scale-90">
                     {tab.count}
                   </span>
