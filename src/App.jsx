@@ -72,10 +72,32 @@ export default function App() {
     return selectedBranch || 'rozybakieva';
   };
 
-  // Проверка, является ли документ корректировкой
+  // Проверка типа документа для цветового выделения
+  const isDocLaunch = (doc) => {
+    const text = `${doc?.file_name || ''} ${doc?.promo_number || ''}`.toLowerCase();
+    return text.includes('запуск');
+  };
+
+  const isDocRevaluation = (doc) => {
+    const text = `${doc?.file_name || ''} ${doc?.promo_number || ''}`.toLowerCase();
+    return doc?.doc_type === 'revaluation' || text.includes('переоценк');
+  };
+
   const isDocCorrection = (doc) => {
     const text = `${doc?.file_name || ''} ${doc?.promo_number || ''}`.toLowerCase();
     return text.includes('корректировк') || text.includes('корр.') || text.includes('корр ') || text.includes('коррекция');
+  };
+
+  // Определение цвета обводки бейджа номера
+  const getBadgeColorClass = (doc) => {
+    if (isDocLaunch(doc)) {
+      return 'bg-blue-50 text-blue-700 border-blue-400 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-500';
+    }
+    if (isDocRevaluation(doc)) {
+      return 'bg-emerald-50 text-emerald-700 border-emerald-400 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-500';
+    }
+    // Корректировки и любые другие документы, не являющиеся запуском — желтые
+    return 'bg-amber-50 text-amber-700 border-amber-400 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-500';
   };
 
   // Интеллектуальное извлечение чистого номера акции без мусора и слова "ЗАПУСК"
@@ -110,7 +132,7 @@ export default function App() {
     return 'АКЦИЯ';
   };
 
-  // Безопасная проверка соответствия отдела пользователя (без падений из-за эмодзи)
+  // Безопасная проверка соответствия отдела пользователя
   const matchesUserDept = (docDept, currentUser, filterDept) => {
     const docD = String(docDept || '').toLowerCase();
     
@@ -160,7 +182,7 @@ export default function App() {
     };
   }, [selectedDoc]);
 
-  // Загрузка ведомости остатков с гарантированным подтягиванием цен
+  // Загрузка ведомости остатков с подтягиванием цен
   useEffect(() => {
     if (currentTab !== 'statement') return;
     const trimmed = statementQuery.trim();
@@ -354,7 +376,7 @@ export default function App() {
     return () => window.removeEventListener('focus', handleWindowFocus);
   }, [currentTab, selectedDept, searchQuery, dateFilter, monthFilter, promoSubTab, giftsSubTab, user, selectedBranch]);
 
-  // Глубокий, автономный пересчет счетчиков со всеми документами из БД
+  // Глубокий пересчет счетчиков-бейджей для всех основных вкладок
   const updateTabCounters = async () => {
     if (!user) return;
     try {
@@ -365,7 +387,7 @@ export default function App() {
         .select(`
           id, dept, doc_type, file_name, period_end, promo_number,
           document_branch_statuses!inner(status, branch), 
-          document_items(normalized_name, is_in_stock)
+          document_items(normalized_name)
         `)
         .eq('document_branch_statuses.branch', activeBranch);
 
@@ -398,7 +420,7 @@ export default function App() {
         if (!doc.document_items || doc.document_items.length === 0) return true;
         return doc.document_items.some(item => {
           const key = item.normalized_name?.trim().toLowerCase();
-          return (key && branchStockMap[key] === true) || item.is_in_stock === true;
+          return key && branchStockMap[key] === true;
         });
       };
 
@@ -423,19 +445,20 @@ export default function App() {
         }
 
         if (isGift || isMedia) {
-          if (branchStatus === 'new') {
+          if (branchStatus === 'new' && (isMedia || inStock)) {
             counts.gifts++;
           } else if (computedStatus === 'completed') {
             counts.completed++;
-          } else if (computedStatus === 'archive') {
+          } else if (computedStatus === 'archive' || (doc.period_end && doc.period_end < todayStr && !inStock && !isMedia)) {
             counts.archive++;
           }
         } else {
-          if (computedStatus === 'new') {
+          // В новые попадают только те, что в наличии
+          if (computedStatus === 'new' && inStock) {
             counts.new++;
           } else if (computedStatus === 'completed') {
             counts.completed++;
-          } else if (computedStatus === 'archive') {
+          } else if (computedStatus === 'archive' || (doc.period_end && doc.period_end < todayStr && !inStock)) {
             counts.archive++;
           }
         }
@@ -553,7 +576,7 @@ export default function App() {
         if (!doc.document_items || doc.document_items.length === 0) return true;
         return doc.document_items.some(item => {
           const key = item.normalized_name?.trim().toLowerCase();
-          return (key && branchStockMap[key] === true) || item.is_in_stock === true;
+          return key && branchStockMap[key] === true;
         });
       };
 
@@ -588,22 +611,24 @@ export default function App() {
       let finalDocs = [];
       if (currentTab === 'new') {
         if (promoSubTab === 'new') {
-          finalDocs = mapped.filter(doc => doc.computedStatus === 'new' && doc.doc_type !== 'gift' && doc.doc_type !== 'media');
+          // Только в наличии
+          finalDocs = mapped.filter(doc => doc.computedStatus === 'new' && doc.hasStockInBranch && doc.doc_type !== 'gift' && doc.doc_type !== 'media');
         } else {
-          finalDocs = mapped.filter(doc => doc.computedStatus === 'processed' && doc.doc_type !== 'gift' && doc.doc_type !== 'media');
+          // Оформленные ИЛИ те, которых нет в наличии
+          finalDocs = mapped.filter(doc => ((doc.computedStatus === 'processed') || (doc.computedStatus === 'new' && !doc.hasStockInBranch)) && doc.doc_type !== 'gift' && doc.doc_type !== 'media');
         }
       } else if (currentTab === 'gifts') {
         if (giftsSubTab === 'new') {
-          finalDocs = mapped.filter(doc => (doc.doc_type === 'media' || doc.doc_type === 'gift') && doc.status === 'new');
+          finalDocs = mapped.filter(doc => (doc.doc_type === 'media' || (doc.doc_type === 'gift' && doc.hasStockInBranch)) && doc.status === 'new');
         } else {
-          finalDocs = mapped.filter(doc => (doc.doc_type === 'media' || doc.doc_type === 'gift') && doc.status === 'processed');
+          finalDocs = mapped.filter(doc => (doc.doc_type === 'media' || doc.doc_type === 'gift') && (doc.status === 'processed' || (doc.doc_type === 'gift' && !doc.hasStockInBranch && doc.status === 'new')));
         }
       } else if (currentTab === 'completed') {
         finalDocs = mapped.filter(doc => doc.computedStatus === 'completed');
       } else if (currentTab === 'archive') {
         finalDocs = mapped.filter(doc => 
           (doc.computedStatus === 'archive') || 
-          (doc.period_end && doc.period_end < todayStr && doc.doc_type !== 'media')
+          (doc.period_end && doc.period_end < todayStr && !doc.hasStockInBranch && doc.doc_type !== 'media')
         );
       }
 
@@ -916,7 +941,8 @@ export default function App() {
                 onClick={() => { setCurrentTab(tab.id); setDateFilter(''); setPromoSubTab('new'); setGiftsSubTab('new'); }}
                 className={`relative flex flex-col items-center justify-center pt-2.5 pb-2 rounded-lg transition-[background-color,color] duration-200 ease-out ${currentTab === tab.id ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs' : 'text-slate-500 dark:text-slate-400'}`}
               >
-                {tab.count > 0 && tab.id !== 'archive' && (
+                {/* Бейджи показываются на всех вкладках, где count > 0 */}
+                {tab.count > 0 && tab.id !== 'archive' && tab.id !== 'statement' && (
                   <span className="absolute top-0.5 right-0.5 bg-red-500 text-white text-[8px] font-black h-3.5 min-w-[14px] px-0.5 rounded-full flex items-center justify-center border border-white dark:border-slate-950 scale-90">
                     {tab.count}
                   </span>
@@ -1086,13 +1112,12 @@ export default function App() {
                           className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-0 cursor-pointer mr-0.5"
                         />
                       )}
-                      <span className={`text-[8px] font-black px-1.5 py-0.5 rounded border transition-colors duration-300 ${
-                        isDocCorrection(doc)
-                          ? 'bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-500'
-                          : 'bg-blue-50 text-blue-700 border-blue-300 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-500'
-                      }`}>
+                      
+                      {/* БЕЙДЖ НОМЕРА С ТОЧНЫМ ЦВЕТОВЫМ РАЗДЕЛЕНИЕМ */}
+                      <span className={`text-[8px] font-black px-1.5 py-0.5 rounded border transition-colors duration-300 ${getBadgeColorClass(doc)}`}>
                         {displayPromoNumber}
                       </span>
+
                       {(doc.doc_type === 'gift' || doc.doc_type === 'media') && currentTab !== 'processed' && (
                         <span className="bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 text-[8px] font-black px-1 rounded border border-purple-200 dark:border-purple-900">
                           Подарок / Комплект
@@ -1183,11 +1208,7 @@ export default function App() {
               
               <div className="p-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 flex items-center justify-between transition-colors duration-300">
                 <div className="min-w-0 flex-1 pr-3">
-                  <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border uppercase tracking-wider ${
-                    isDocCorrection(selectedDoc)
-                      ? 'bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-500'
-                      : 'bg-blue-50 text-blue-700 border-blue-300 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-500'
-                  }`}>
+                  <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border uppercase tracking-wider ${getBadgeColorClass(selectedDoc)}`}>
                     {getPromoNumber(selectedDoc)}
                   </span>
                   <h2 className="text-xs font-bold text-slate-900 dark:text-slate-100 mt-0.5 truncate">{selectedDoc.file_name}</h2>
@@ -1413,7 +1434,7 @@ export default function App() {
                       >
                         <div className="space-y-0.5 min-w-0 flex-1 pr-16">
                           <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[8px] font-bold px-1 rounded border dark:border-slate-700">
+                            <span className={`text-[8px] font-bold px-1 rounded border ${getBadgeColorClass(doc)}`}>
                               {getPromoNumber(doc)}
                             </span>
                             {(doc.doc_type === 'gift' || doc.doc_type === 'media') && (
