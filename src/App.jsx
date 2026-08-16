@@ -401,30 +401,111 @@ export default function App() {
     return () => window.removeEventListener('focus', handleWindowFocus);
   }, [currentTab, selectedDept, searchQuery, dateFilter, monthFilter, promoSubTab, giftsSubTab, user, selectedBranch]);
 
-  <div className="grid grid-cols-5 bg-slate-200/70 dark:bg-slate-800/60 p-1 rounded-xl shadow-inner gap-0.5 border border-slate-300/10 transition-colors duration-500">
-            {[
-              { id: 'new', label: 'Акции', icon: <IconNew />, count: tabCounts.new },
-              { id: 'completed', label: 'Завершенные', icon: <IconCompleted />, count: tabCounts.completed },
-              { id: 'gifts', label: 'Подарки', icon: <IconGift />, count: tabCounts.gifts },
-              { id: 'archive', label: 'Архив', icon: <IconArchive />, count: 0 },
-              { id: 'statement', label: 'Ведомость', icon: <IconStock />, count: 0 }
-            ].map(tab => (
-              <button
-                key={tab.id}
-                onClick={() => { setCurrentTab(tab.id); setDateFilter(''); setPromoSubTab('new'); setGiftsSubTab('new'); }}
-                className={`relative flex flex-col items-center justify-center pt-2.5 pb-2 rounded-lg transition-[background-color,color] duration-200 ease-out ${currentTab === tab.id ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs' : 'text-slate-500 dark:text-slate-400'}`}
-              >
-                {/* Показываем красный бейдж над любой вкладкой, где есть неотработанные документы */}
-                {tab.count > 0 && (
-                  <span className="absolute top-0.5 right-0.5 bg-red-500 text-white text-[8px] font-black h-3.5 min-w-[14px] px-0.5 rounded-full flex items-center justify-center border border-white dark:border-slate-950 scale-90">
-                    {tab.count}
-                  </span>
-                )}
-                <div className="mb-0.5 scale-90">{tab.icon}</div>
-                <span className="text-[9px] sm:text-xs font-medium tracking-tight truncate max-w-full px-0.5">{tab.label}</span>
-              </button>
-            ))}
-          </div>
+  // Простой и точный пересчет счетчиков-бейджей по фактическому числу документов во вкладках
+  const updateTabCounters = async () => {
+    if (!user) return;
+    try {
+      const activeBranch = getActiveBranch();
+
+      const { data: docsData, error } = await supabase
+        .from('documents')
+        .select(`
+          id, dept, doc_type, file_name, period_end, promo_number,
+          document_branch_statuses!inner(status, branch), 
+          document_items(raw_name, normalized_name, is_in_stock)
+        `)
+        .eq('document_branch_statuses.branch', activeBranch);
+
+      if (error || !docsData) {
+        console.error("Ошибка загрузки документов для счетчиков:", error);
+        return;
+      }
+
+      // 1. Фильтруем по отделу пользователя
+      const visibleDocs = docsData.filter(doc => matchesUserDept(doc.dept, user, selectedDept));
+
+      // 2. Получаем карту остатков филиала
+      let branchStockMap = {};
+      const { data: invData } = await supabase
+        .from('inventory')
+        .select('raw_name, normalized_name, stock_warehouse, stock_showcase')
+        .eq('branch', activeBranch);
+
+      if (invData) {
+        invData.forEach(inv => {
+          const normKey = inv.normalized_name?.trim().toLowerCase();
+          const rawKey = inv.raw_name?.trim().toLowerCase();
+          const totalStock = (inv.stock_warehouse || 0) + (inv.stock_showcase || 0);
+
+          if (totalStock > 0) {
+            if (normKey) branchStockMap[normKey] = true;
+            if (rawKey) branchStockMap[rawKey] = true;
+          }
+        });
+      }
+
+      // Проверка наличия (хотя бы 1 позиция)
+      const checkDocStockInBranch = (doc) => {
+        if (!doc.document_items || doc.document_items.length === 0) return true;
+        return doc.document_items.some(item => {
+          const normKey = item.normalized_name?.trim().toLowerCase();
+          const rawKey = item.raw_name?.trim().toLowerCase();
+          return (normKey && branchStockMap[normKey] === true) || 
+                 (rawKey && branchStockMap[rawKey] === true) || 
+                 item.is_in_stock === true;
+        });
+      };
+
+      const todayStr = new Date().toISOString().split('T')[0];
+      const counts = { new: 0, completed: 0, gifts: 0, archive: 0 };
+
+      // 3. Прямой подсчет ровно по статусам и наличию
+      visibleDocs.forEach(doc => {
+        const branchStatusObj = Array.isArray(doc.document_branch_statuses) 
+          ? doc.document_branch_statuses[0] 
+          : doc.document_branch_statuses;
+
+        const branchStatus = branchStatusObj?.status || 'new';
+        const inStock = checkDocStockInBranch(doc);
+        const isMedia = doc.doc_type === 'media';
+        const isGift = doc.doc_type === 'gift';
+        const isCorrection = isDocCorrection(doc);
+
+        let computedStatus = branchStatus;
+        if (doc.period_end && doc.period_end < todayStr && !isCorrection) {
+          if (branchStatus === 'new' && !inStock) computedStatus = 'archive';
+          else if (branchStatus === 'processed') computedStatus = 'completed';
+        }
+
+        // Подарки и медиа-документы
+        if (isGift || isMedia) {
+          // Неоформленные подарки в наличии или медиа-контент
+          if (branchStatus === 'new' && (isMedia || inStock)) {
+            counts.gifts++;
+          } else if (computedStatus === 'completed') {
+            counts.completed++;
+          } else if (computedStatus === 'archive') {
+            counts.archive++;
+          }
+        } 
+        // Основные промо-акции
+        else {
+          // Неоформленные акции в наличии
+          if (computedStatus === 'new' && inStock) {
+            counts.new++;
+          } else if (computedStatus === 'completed') {
+            counts.completed++;
+          } else if (computedStatus === 'archive') {
+            counts.archive++;
+          }
+        }
+      });
+
+      setTabCounts(counts);
+    } catch (err) { 
+      console.error("Ошибка пересчета счетчиков:", err); 
+    }
+  };
 
   const handleTouchStart = (e) => {
     if (selectedDoc) return;
