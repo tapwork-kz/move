@@ -401,12 +401,13 @@ export default function App() {
     return () => window.removeEventListener('focus', handleWindowFocus);
   }, [currentTab, selectedDept, searchQuery, dateFilter, monthFilter, promoSubTab, giftsSubTab, user, selectedBranch]);
 
-  // Глубокий пересчет счетчиков-бейджей
+  // Полностью синхронизированный пересчет счетчиков-бейджей для всех вкладок
   const updateTabCounters = async () => {
     if (!user) return;
     try {
       const activeBranch = getActiveBranch();
 
+      // 1. Загружаем документы ровно в том же виде, как в fetchDocuments
       const { data: docsData, error } = await supabase
         .from('documents')
         .select(`
@@ -423,6 +424,7 @@ export default function App() {
 
       const visibleDocs = docsData.filter(doc => matchesUserDept(doc.dept, user, selectedDept));
 
+      // 2. Получаем актуальные остатки выбранного филиала
       let branchStockMap = {};
       const { data: invData } = await supabase
         .from('inventory')
@@ -442,7 +444,7 @@ export default function App() {
         });
       }
 
-      // Проверка: есть ли хотя бы одна позиция в наличии в текущем филиале
+      // 3. Точная проверка наличия (как в списке и в модальном окне)
       const checkDocStockInBranch = (doc) => {
         if (!doc.document_items || doc.document_items.length === 0) return true;
         return doc.document_items.some(item => {
@@ -457,40 +459,45 @@ export default function App() {
       const todayStr = new Date().toISOString().split('T')[0];
       const counts = { new: 0, completed: 0, gifts: 0, archive: 0 };
 
+      // 4. Подсчет с единой логикой распределения по всем табам
       visibleDocs.forEach(doc => {
         const branchStatusObj = Array.isArray(doc.document_branch_statuses) 
           ? doc.document_branch_statuses[0] 
           : doc.document_branch_statuses;
 
-        const branchStatus = branchStatusObj?.status || 'new';
-        const inStock = checkDocStockInBranch(doc);
+        const currentBranchStatus = branchStatusObj?.status || 'new';
+        const hasStock = checkDocStockInBranch(doc);
         const isMedia = doc.doc_type === 'media';
         const isGift = doc.doc_type === 'gift';
         const isCorrection = isDocCorrection(doc);
 
-        let computedStatus = branchStatus;
+        let computedStatus = currentBranchStatus;
         if (doc.period_end && doc.period_end < todayStr && !isCorrection) {
-          if (branchStatus === 'new' && !inStock) computedStatus = 'archive';
-          else if (branchStatus === 'processed') computedStatus = 'completed';
+          if (currentBranchStatus === 'new' && !hasStock) computedStatus = 'archive';
+          else if (currentBranchStatus === 'processed') computedStatus = 'completed';
         }
 
+        // Вкладка ПОДАРКИ: новые подарки / медиа в наличии
         if (isGift || isMedia) {
-          if (branchStatus === 'new' && (isMedia || inStock)) {
+          if (currentBranchStatus === 'new' && (isMedia || hasStock)) {
             counts.gifts++;
-          } else if (computedStatus === 'completed') {
-            counts.completed++;
-          } else if (computedStatus === 'archive' || (doc.period_end && doc.period_end < todayStr && !inStock && !isMedia)) {
-            counts.archive++;
           }
-        } else {
-          // В новые попадают только если есть в наличии (хотя бы 1 позиция)
-          if (computedStatus === 'new' && inStock) {
+        } 
+        // Вкладка АКЦИИ: новые акции, у которых есть хотя бы 1 позиция в наличии
+        else {
+          if (computedStatus === 'new' && hasStock) {
             counts.new++;
-          } else if (computedStatus === 'completed') {
-            counts.completed++;
-          } else if (computedStatus === 'archive' || (doc.period_end && doc.period_end < todayStr && !inStock)) {
-            counts.archive++;
           }
+        }
+
+        // Вкладка ЗАВЕРШЕННЫЕ: все оформленные (processed) или завершенные документы
+        if (computedStatus === 'completed' || currentBranchStatus === 'processed') {
+          counts.completed++;
+        }
+
+        // Вкладка АРХИВ
+        if (computedStatus === 'archive' || (doc.period_end && doc.period_end < todayStr && !hasStock && !isMedia)) {
+          counts.archive++;
         }
       });
 
