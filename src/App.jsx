@@ -99,6 +99,7 @@ export default function App() {
     return 'bg-amber-50 text-amber-700 border-amber-400 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-500';
   };
 
+  // Интеллектуальное извлечение чистого номера акции
   const getPromoNumber = (doc) => {
     let raw = String(doc?.promo_number || '').trim();
 
@@ -108,23 +109,12 @@ export default function App() {
       .replace(/промо\s*[-_:]?\s*/gi, '')
       .trim();
 
-    // Если в базе уже есть правильный номер акции (от 6 до 15 цифр)
-    let dbMatch = raw.match(/-?\d{6,15}/);
-    if (dbMatch) {
-      return `№${dbMatch[0]}`;
+    if (raw && raw !== 'null' && raw !== 'undefined' && raw !== '') {
+      const matchNum = raw.match(/[A-Za-z0-9\-\/]+/);
+      if (matchNum) {
+        return `№${matchNum[0].replace(/^№+/, '')}`;
+      }
     }
-
-    const fileName = String(doc?.file_name || '');
-    
-    // Ищем в названии файла ТОЛЬКО номер от 6 цифр (чтобы не цеплять 01.08 или 31.08)
-    const matchNo = fileName.match(/(?:№|#|промо\s*№?|акция\s*№?)\s*(-?\d{6,15})/i);
-    if (matchNo && matchNo[1]) return `№${matchNo[1]}`;
-
-    const matchDigits = fileName.match(/\b(-?\d{6,15})\b/);
-    if (matchDigits && matchDigits[1]) return `№${matchDigits[1]}`;
-
-    return 'АКЦИЯ';
-  };
 
     const fileName = String(doc?.file_name || '');
     const cleanedFileName = fileName.replace(/запуск\s*[-_:]?\s*/gi, '');
