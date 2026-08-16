@@ -401,111 +401,30 @@ export default function App() {
     return () => window.removeEventListener('focus', handleWindowFocus);
   }, [currentTab, selectedDept, searchQuery, dateFilter, monthFilter, promoSubTab, giftsSubTab, user, selectedBranch]);
 
-  // Полностью синхронизированный пересчет счетчиков-бейджей для всех вкладок
-  const updateTabCounters = async () => {
-    if (!user) return;
-    try {
-      const activeBranch = getActiveBranch();
-
-      // 1. Загружаем документы ровно в том же виде, как в fetchDocuments
-      const { data: docsData, error } = await supabase
-        .from('documents')
-        .select(`
-          id, dept, doc_type, file_name, period_end, promo_number,
-          document_branch_statuses!inner(status, branch), 
-          document_items(raw_name, normalized_name, is_in_stock)
-        `)
-        .eq('document_branch_statuses.branch', activeBranch);
-
-      if (error || !docsData) {
-        console.error("Ошибка загрузки документов для счетчиков:", error);
-        return;
-      }
-
-      const visibleDocs = docsData.filter(doc => matchesUserDept(doc.dept, user, selectedDept));
-
-      // 2. Получаем актуальные остатки выбранного филиала
-      let branchStockMap = {};
-      const { data: invData } = await supabase
-        .from('inventory')
-        .select('raw_name, normalized_name, stock_warehouse, stock_showcase')
-        .eq('branch', activeBranch);
-
-      if (invData) {
-        invData.forEach(inv => {
-          const normKey = inv.normalized_name?.trim().toLowerCase();
-          const rawKey = inv.raw_name?.trim().toLowerCase();
-          const totalStock = (inv.stock_warehouse || 0) + (inv.stock_showcase || 0);
-
-          if (totalStock > 0) {
-            if (normKey) branchStockMap[normKey] = true;
-            if (rawKey) branchStockMap[rawKey] = true;
-          }
-        });
-      }
-
-      // 3. Точная проверка наличия (как в списке и в модальном окне)
-      const checkDocStockInBranch = (doc) => {
-        if (!doc.document_items || doc.document_items.length === 0) return true;
-        return doc.document_items.some(item => {
-          const normKey = item.normalized_name?.trim().toLowerCase();
-          const rawKey = item.raw_name?.trim().toLowerCase();
-          return (normKey && branchStockMap[normKey] === true) || 
-                 (rawKey && branchStockMap[rawKey] === true) || 
-                 item.is_in_stock === true;
-        });
-      };
-
-      const todayStr = new Date().toISOString().split('T')[0];
-      const counts = { new: 0, completed: 0, gifts: 0, archive: 0 };
-
-      // 4. Подсчет с единой логикой распределения по всем табам
-      visibleDocs.forEach(doc => {
-        const branchStatusObj = Array.isArray(doc.document_branch_statuses) 
-          ? doc.document_branch_statuses[0] 
-          : doc.document_branch_statuses;
-
-        const currentBranchStatus = branchStatusObj?.status || 'new';
-        const hasStock = checkDocStockInBranch(doc);
-        const isMedia = doc.doc_type === 'media';
-        const isGift = doc.doc_type === 'gift';
-        const isCorrection = isDocCorrection(doc);
-
-        let computedStatus = currentBranchStatus;
-        if (doc.period_end && doc.period_end < todayStr && !isCorrection) {
-          if (currentBranchStatus === 'new' && !hasStock) computedStatus = 'archive';
-          else if (currentBranchStatus === 'processed') computedStatus = 'completed';
-        }
-
-        // Вкладка ПОДАРКИ: новые подарки / медиа в наличии
-        if (isGift || isMedia) {
-          if (currentBranchStatus === 'new' && (isMedia || hasStock)) {
-            counts.gifts++;
-          }
-        } 
-        // Вкладка АКЦИИ: новые акции, у которых есть хотя бы 1 позиция в наличии
-        else {
-          if (computedStatus === 'new' && hasStock) {
-            counts.new++;
-          }
-        }
-
-        // Вкладка ЗАВЕРШЕННЫЕ: все оформленные (processed) или завершенные документы
-        if (computedStatus === 'completed' || currentBranchStatus === 'processed') {
-          counts.completed++;
-        }
-
-        // Вкладка АРХИВ
-        if (computedStatus === 'archive' || (doc.period_end && doc.period_end < todayStr && !hasStock && !isMedia)) {
-          counts.archive++;
-        }
-      });
-
-      setTabCounts(counts);
-    } catch (err) { 
-      console.error("Ошибка пересчета счетчиков:", err); 
-    }
-  };
+  <div className="grid grid-cols-5 bg-slate-200/70 dark:bg-slate-800/60 p-1 rounded-xl shadow-inner gap-0.5 border border-slate-300/10 transition-colors duration-500">
+            {[
+              { id: 'new', label: 'Акции', icon: <IconNew />, count: tabCounts.new },
+              { id: 'completed', label: 'Завершенные', icon: <IconCompleted />, count: tabCounts.completed },
+              { id: 'gifts', label: 'Подарки', icon: <IconGift />, count: tabCounts.gifts },
+              { id: 'archive', label: 'Архив', icon: <IconArchive />, count: 0 },
+              { id: 'statement', label: 'Ведомость', icon: <IconStock />, count: 0 }
+            ].map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => { setCurrentTab(tab.id); setDateFilter(''); setPromoSubTab('new'); setGiftsSubTab('new'); }}
+                className={`relative flex flex-col items-center justify-center pt-2.5 pb-2 rounded-lg transition-[background-color,color] duration-200 ease-out ${currentTab === tab.id ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs' : 'text-slate-500 dark:text-slate-400'}`}
+              >
+                {/* Показываем красный бейдж над любой вкладкой, где есть неотработанные документы */}
+                {tab.count > 0 && (
+                  <span className="absolute top-0.5 right-0.5 bg-red-500 text-white text-[8px] font-black h-3.5 min-w-[14px] px-0.5 rounded-full flex items-center justify-center border border-white dark:border-slate-950 scale-90">
+                    {tab.count}
+                  </span>
+                )}
+                <div className="mb-0.5 scale-90">{tab.icon}</div>
+                <span className="text-[9px] sm:text-xs font-medium tracking-tight truncate max-w-full px-0.5">{tab.label}</span>
+              </button>
+            ))}
+          </div>
 
   const handleTouchStart = (e) => {
     if (selectedDoc) return;
