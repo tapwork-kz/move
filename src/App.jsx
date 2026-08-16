@@ -131,6 +131,23 @@ export default function App() {
     return 'АКЦИЯ';
   };
 
+  // Проверка валидности цены (исключаем подарки, нули и пустые строки)
+  const isValidPrice = (price) => {
+    if (!price) return false;
+    const s = String(price).toLowerCase().trim();
+    if (s === '' || s === '—' || s === '-' || s === 'null' || s === 'undefined' || s === '0' || s === '0 ₸' || s === '0₸') {
+      return false;
+    }
+    if (s.includes('подарок') || s.includes('бонус') || s.includes('скидка') || s.includes('комплект')) {
+      return false;
+    }
+    const cleanNum = s.replace(/[₸\s]/g, '');
+    if (!isNaN(cleanNum) && Number(cleanNum) <= 0) {
+      return false;
+    }
+    return true;
+  };
+
   // Безопасная проверка соответствия отдела пользователя
   const matchesUserDept = (docDept, currentUser, filterDept) => {
     const docD = String(docDept || '').toLowerCase();
@@ -167,17 +184,6 @@ export default function App() {
     }).catch(err => console.error("Ошибка копирования:", err));
   };
 
-  // Валидация реальной числовой цены (отсекает подарки, прочерки и нули)
-  const isValidPriceValue = (val) => {
-    if (!val) return false;
-    const str = String(val).toLowerCase().trim();
-    if (str === '' || str === '—' || str === '-' || str === '0' || str === '0 ₸' || str.includes('подарок') || str.includes('комплект')) {
-      return false;
-    }
-    const digitsOnly = str.replace(/[₸\s]/g, '');
-    return !isNaN(digitsOnly) && Number(digitsOnly) > 0;
-  };
-
   useEffect(() => {
     if (selectedDoc) {
       document.documentElement.style.overflow = 'hidden';
@@ -192,7 +198,7 @@ export default function App() {
     };
   }, [selectedDoc]);
 
-  // Загрузка ведомости: строго берется последняя поступившая цена из документов с ценой (НЕ подарков)
+  // Загрузка ведомости остатков: строго по последнему документу с РЕАЛЬНОЙ ценой (без подарков и 0)
   useEffect(() => {
     if (currentTab !== 'statement') return;
     const trimmed = statementQuery.trim();
@@ -217,38 +223,55 @@ export default function App() {
 
         if (invData && invData.length > 0) {
           const normNames = invData.map(i => i.normalized_name).filter(Boolean);
+          const rawNames = invData.map(i => i.raw_name).filter(Boolean);
 
           let priceMap = {};
-          if (normNames.length > 0) {
-            // Подтягиваем элементы документов вместе с типом документа (исключая подарки)
-            const { data: priceDocs } = await supabase
+          if (normNames.length > 0 || rawNames.length > 0) {
+            // Подтягиваем элементы документов вместе с документом, чтобы отфильтровать doc_type !== 'gift'
+            let q = supabase
               .from('document_items')
               .select(`
                 normalized_name, 
+                raw_name, 
                 price, 
-                created_at, 
-                documents:document_id!inner(doc_type)
+                created_at,
+                documents!inner(doc_type)
               `)
-              .in('normalized_name', normNames)
               .neq('documents.doc_type', 'gift')
               .neq('documents.doc_type', 'media')
               .order('created_at', { ascending: false });
 
+            if (normNames.length > 0) {
+              q = q.in('normalized_name', normNames);
+            }
+
+            const { data: priceDocs } = await q;
+
             if (priceDocs) {
               priceDocs.forEach(p => {
-                const key = p.normalized_name?.trim().toLowerCase();
-                if (key && !priceMap[key] && isValidPriceValue(p.price)) {
-                  priceMap[key] = p.price;
+                const normKey = p.normalized_name?.trim().toLowerCase();
+                const rawKey = p.raw_name?.trim().toLowerCase();
+
+                if (isValidPrice(p.price)) {
+                  if (normKey && !priceMap[normKey]) {
+                    priceMap[normKey] = p.price;
+                  }
+                  if (rawKey && !priceMap[rawKey]) {
+                    priceMap[rawKey] = p.price;
+                  }
                 }
               });
             }
           }
 
           const merged = invData.map(item => {
-            const key = item.normalized_name?.trim().toLowerCase();
+            const normKey = item.normalized_name?.trim().toLowerCase();
+            const rawKey = item.raw_name?.trim().toLowerCase();
+            const foundPrice = (normKey && priceMap[normKey]) || (rawKey && priceMap[rawKey]) || '—';
+
             return {
               ...item,
-              latest_price: priceMap[key] || '—'
+              latest_price: foundPrice
             };
           });
 
@@ -378,7 +401,7 @@ export default function App() {
     return () => window.removeEventListener('focus', handleWindowFocus);
   }, [currentTab, selectedDept, searchQuery, dateFilter, monthFilter, promoSubTab, giftsSubTab, user, selectedBranch]);
 
-  // Глубокий пересчет счетчиков-бейджей для всех основных вкладок строго по остаткам БД филиала
+  // Глубокий пересчет счетчиков-бейджей
   const updateTabCounters = async () => {
     if (!user) return;
     try {
@@ -389,38 +412,45 @@ export default function App() {
         .select(`
           id, dept, doc_type, file_name, period_end, promo_number,
           document_branch_statuses!inner(status, branch), 
-          document_items(normalized_name)
+          document_items(raw_name, normalized_name, is_in_stock)
         `)
         .eq('document_branch_statuses.branch', activeBranch);
 
-      if (error || !docsData) return;
+      if (error || !docsData) {
+        console.error("Ошибка загрузки документов для счетчиков:", error);
+        return;
+      }
 
       const visibleDocs = docsData.filter(doc => matchesUserDept(doc.dept, user, selectedDept));
 
-      // Карта остатков филиала
       let branchStockMap = {};
       const { data: invData } = await supabase
         .from('inventory')
-        .select('normalized_name, stock_warehouse, stock_showcase')
+        .select('raw_name, normalized_name, stock_warehouse, stock_showcase')
         .eq('branch', activeBranch);
 
       if (invData) {
         invData.forEach(inv => {
-          const key = inv.normalized_name?.trim().toLowerCase();
-          if (key) {
-            const totalStock = (inv.stock_warehouse || 0) + (inv.stock_showcase || 0);
-            if (totalStock > 0) {
-              branchStockMap[key] = (branchStockMap[key] || 0) + totalStock;
-            }
+          const normKey = inv.normalized_name?.trim().toLowerCase();
+          const rawKey = inv.raw_name?.trim().toLowerCase();
+          const totalStock = (inv.stock_warehouse || 0) + (inv.stock_showcase || 0);
+
+          if (totalStock > 0) {
+            if (normKey) branchStockMap[normKey] = true;
+            if (rawKey) branchStockMap[rawKey] = true;
           }
         });
       }
 
+      // Проверка: есть ли хотя бы одна позиция в наличии в текущем филиале
       const checkDocStockInBranch = (doc) => {
         if (!doc.document_items || doc.document_items.length === 0) return true;
         return doc.document_items.some(item => {
-          const key = item.normalized_name?.trim().toLowerCase();
-          return key && (branchStockMap[key] ?? 0) > 0;
+          const normKey = item.normalized_name?.trim().toLowerCase();
+          const rawKey = item.raw_name?.trim().toLowerCase();
+          return (normKey && branchStockMap[normKey] === true) || 
+                 (rawKey && branchStockMap[rawKey] === true) || 
+                 item.is_in_stock === true;
         });
       };
 
@@ -453,7 +483,7 @@ export default function App() {
             counts.archive++;
           }
         } else {
-          // В новые считаются строго те, что реально есть на остатках филиала
+          // В новые попадают только если есть в наличии (хотя бы 1 позиция)
           if (computedStatus === 'new' && inStock) {
             counts.new++;
           } else if (computedStatus === 'completed') {
@@ -554,30 +584,34 @@ export default function App() {
 
       const deptFilteredDocs = (data || []).filter(doc => matchesUserDept(doc.dept, user, selectedDept));
 
-      // Карта остатков филиала для точной фильтрации наличия
       let branchStockMap = {};
       const { data: invData } = await supabase
         .from('inventory')
-        .select('normalized_name, stock_warehouse, stock_showcase')
+        .select('raw_name, normalized_name, stock_warehouse, stock_showcase')
         .eq('branch', activeBranch);
 
       if (invData) {
         invData.forEach(inv => {
-          const key = inv.normalized_name?.trim().toLowerCase();
-          if (key) {
-            const totalStock = (inv.stock_warehouse || 0) + (inv.stock_showcase || 0);
-            if (totalStock > 0) {
-              branchStockMap[key] = (branchStockMap[key] || 0) + totalStock;
-            }
+          const normKey = inv.normalized_name?.trim().toLowerCase();
+          const rawKey = inv.raw_name?.trim().toLowerCase();
+          const totalStock = (inv.stock_warehouse || 0) + (inv.stock_showcase || 0);
+
+          if (totalStock > 0) {
+            if (normKey) branchStockMap[normKey] = true;
+            if (rawKey) branchStockMap[rawKey] = true;
           }
         });
       }
 
+      // Документ в наличии, если хотя бы 1 позиция есть на складе/витрине текущего филиала
       const checkDocStock = (doc) => {
         if (!doc.document_items || doc.document_items.length === 0) return true;
         return doc.document_items.some(item => {
-          const key = item.normalized_name?.trim().toLowerCase();
-          return key && (branchStockMap[key] ?? 0) > 0;
+          const normKey = item.normalized_name?.trim().toLowerCase();
+          const rawKey = item.raw_name?.trim().toLowerCase();
+          return (normKey && branchStockMap[normKey] === true) || 
+                 (rawKey && branchStockMap[rawKey] === true) || 
+                 item.is_in_stock === true;
         });
       };
 
@@ -612,10 +646,10 @@ export default function App() {
       let finalDocs = [];
       if (currentTab === 'new') {
         if (promoSubTab === 'new') {
-          // В Новые попадают только те акции, которые реально есть на остатках филиала
+          // Только новые И если хотя бы 1 позиция в наличии
           finalDocs = mapped.filter(doc => doc.computedStatus === 'new' && doc.hasStockInBranch && doc.doc_type !== 'gift' && doc.doc_type !== 'media');
         } else {
-          // В Оформленные попадают либо уже оформленные, либо те, которых нет в наличии филиала
+          // Оформленные ИЛИ те, у которых нет остатков
           finalDocs = mapped.filter(doc => ((doc.computedStatus === 'processed') || (doc.computedStatus === 'new' && !doc.hasStockInBranch)) && doc.doc_type !== 'gift' && doc.doc_type !== 'media');
         }
       } else if (currentTab === 'gifts') {
@@ -641,7 +675,7 @@ export default function App() {
     }
   };
 
-  // Детали документа: строгая привязка остатков (склад + витрина) к выбранному филиалу из БД inventory
+  // Детали документа: строгая привязка остатков (склад + витрина) к выбранному филиалу
   const openDocDetails = async (doc) => {
     setActiveDocId(doc.id);
     setSelectedDoc(doc);
@@ -662,28 +696,35 @@ export default function App() {
         if (namesToFetch.length > 0) {
           const { data: invData, error: invError } = await supabase
             .from('inventory')
-            .select('normalized_name, stock_warehouse, stock_showcase')
+            .select('raw_name, normalized_name, stock_warehouse, stock_showcase')
             .in('normalized_name', namesToFetch)
             .eq('branch', targetBranch);
 
           if (!invError && invData) {
             invData.forEach(inv => {
-              const key = inv.normalized_name?.trim().toLowerCase();
-              if (key) {
-                const currentWh = invMap[key]?.wh ?? 0;
-                const currentSc = invMap[key]?.sc ?? 0;
-                invMap[key] = {
-                  wh: currentWh + (inv.stock_warehouse ?? 0),
-                  sc: currentSc + (inv.stock_showcase ?? 0)
-                };
+              const normKey = inv.normalized_name?.trim().toLowerCase();
+              const rawKey = inv.raw_name?.trim().toLowerCase();
+              const wh = inv.stock_warehouse ?? 0;
+              const sc = inv.stock_showcase ?? 0;
+
+              if (normKey) {
+                const curWh = invMap[normKey]?.wh ?? 0;
+                const curSc = invMap[normKey]?.sc ?? 0;
+                invMap[normKey] = { wh: curWh + wh, sc: curSc + sc };
+              }
+              if (rawKey) {
+                const curWh = invMap[rawKey]?.wh ?? 0;
+                const curSc = invMap[rawKey]?.sc ?? 0;
+                invMap[rawKey] = { wh: curWh + wh, sc: curSc + sc };
               }
             });
           }
         }
 
         const enrichedItems = itemsData.map(item => {
-          const key = item.normalized_name?.trim().toLowerCase();
-          const stockInfo = key ? invMap[key] : null;
+          const normKey = item.normalized_name?.trim().toLowerCase();
+          const rawKey = item.raw_name?.trim().toLowerCase();
+          const stockInfo = (normKey && invMap[normKey]) || (rawKey && invMap[rawKey]) || null;
           const wh = stockInfo ? stockInfo.wh : 0;
           const sc = stockInfo ? stockInfo.sc : 0;
           const hasBranchStock = (wh + sc) > 0;
@@ -942,7 +983,6 @@ export default function App() {
                 onClick={() => { setCurrentTab(tab.id); setDateFilter(''); setPromoSubTab('new'); setGiftsSubTab('new'); }}
                 className={`relative flex flex-col items-center justify-center pt-2.5 pb-2 rounded-lg transition-[background-color,color] duration-200 ease-out ${currentTab === tab.id ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs' : 'text-slate-500 dark:text-slate-400'}`}
               >
-                {/* Бейджи показываются на всех вкладках, где count > 0 */}
                 {tab.count > 0 && tab.id !== 'archive' && tab.id !== 'statement' && (
                   <span className="absolute top-0.5 right-0.5 bg-red-500 text-white text-[8px] font-black h-3.5 min-w-[14px] px-0.5 rounded-full flex items-center justify-center border border-white dark:border-slate-950 scale-90">
                     {tab.count}
