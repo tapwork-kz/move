@@ -103,10 +103,9 @@ export default function App() {
   const getPromoNumber = (doc) => {
     let raw = String(doc?.promo_number || '').trim();
 
-    // Улучшенная очистка: учитываем склонения (акция/акции)
     raw = raw
       .replace(/запуск\s*[-_:]?\s*/gi, '')
-      .replace(/акци[яи]\s*[-_:]?\s*/gi, '')
+      .replace(/акция\s*[-_:]?\s*/gi, '')
       .replace(/промо\s*[-_:]?\s*/gi, '')
       .trim();
 
@@ -117,16 +116,13 @@ export default function App() {
       }
     }
 
-    // Резервный поиск по имени файла, если в БД пусто или записано стандартное слово
     const fileName = String(doc?.file_name || '');
     const cleanedFileName = fileName.replace(/запуск\s*[-_:]?\s*/gi, '');
 
-    // Ищем маркеры: №, #, промо, акция, акции
-    const matchNo = cleanedFileName.match(/(?:№|#|промо\s*№?|акци[яи]\s*№?)\s*([A-Za-z0-9\-\/]+)/i);
+    const matchNo = cleanedFileName.match(/(?:№|#|промо\s*№?|акция\s*№?)\s*([A-Za-z0-9\-\/]+)/i);
     if (matchNo && matchNo[1]) return `№${matchNo[1]}`;
 
-    // Ищем просто цифры (от 3 до 8 знаков), даже если они не в самом начале строки
-    const matchDigits = cleanedFileName.match(/(?:^|\s|_|-)(\d{3,8})\b/);
+    const matchDigits = cleanedFileName.match(/^(\d{3,8})\b/);
     if (matchDigits && matchDigits[1]) return `№${matchDigits[1]}`;
 
     const matchBracket = cleanedFileName.match(/\[([A-Za-z0-9\-\/]+)\]/);
