@@ -738,29 +738,87 @@ export default function App() {
 
       if (itemsData && itemsData.length > 0) {
         const targetBranch = getActiveBranch();
+        const normNames = itemsData.map(i => i.normalized_name).filter(Boolean);
+        const rawNames = itemsData.map(i => i.raw_name).filter(Boolean);
 
-        // Загружаем номенклатуру выбранного филиала для точного сопоставления
-        const { data: invData, error: invError } = await supabase
-          .from('inventory')
-          .select('raw_name, normalized_name, stock_warehouse, stock_showcase')
-          .eq('branch', targetBranch)
-          .limit(10000);
+        // Targeted chunked queries to bypass PostgREST 1000 limit and get exact branch stock
+        const invMap = {};
+        const queryPromises = [];
 
-        if (invError) {
-          console.error("Ошибка загрузки остатков филиала:", invError);
+        for (let i = 0; i < normNames.length; i += 30) {
+          const chunk = normNames.slice(i, i + 30);
+          queryPromises.push(
+            supabase
+              .from('inventory')
+              .select('raw_name, normalized_name, stock_warehouse, stock_showcase')
+              .eq('branch', targetBranch)
+              .in('normalized_name', chunk)
+          );
+        }
+
+        for (let i = 0; i < rawNames.length; i += 30) {
+          const chunk = rawNames.slice(i, i + 30);
+          queryPromises.push(
+            supabase
+              .from('inventory')
+              .select('raw_name, normalized_name, stock_warehouse, stock_showcase')
+              .eq('branch', targetBranch)
+              .in('raw_name', chunk)
+          );
+        }
+
+        const responses = await Promise.all(queryPromises);
+        responses.forEach(res => {
+          if (res.data) {
+            res.data.forEach(inv => {
+              const normKey = inv.normalized_name?.trim().toLowerCase();
+              const rawKey = inv.raw_name?.trim().toLowerCase();
+              const wh = inv.stock_warehouse ?? 0;
+              const sc = inv.stock_showcase ?? 0;
+
+              if (normKey) {
+                const curWh = invMap[normKey]?.wh ?? 0;
+                const curSc = invMap[normKey]?.sc ?? 0;
+                invMap[normKey] = { wh: curWh + wh, sc: curSc + sc };
+              }
+              if (rawKey) {
+                const curWh = invMap[rawKey]?.wh ?? 0;
+                const curSc = invMap[rawKey]?.sc ?? 0;
+                invMap[rawKey] = { wh: curWh + wh, sc: curSc + sc };
+              }
+            });
+          }
+        });
+
+        // Gift inheritance: if a gift row has price "Акция", inherit the real gift from top row
+        let mainGiftDesc = null;
+        if (doc.doc_type === 'gift' || doc.doc_type === 'media') {
+          const topGift = itemsData.find(i => i.price && i.price !== 'Акция' && isNaN(Number(String(i.price).replace(/[₸тг\s]/gi, ''))));
+          if (topGift) mainGiftDesc = topGift.price;
         }
 
         const enrichedItems = itemsData.map(item => {
-          const stockResult = findMatchingInventoryStock(item, invData || []);
+          const normKey = item.normalized_name?.trim().toLowerCase();
+          const rawKey = item.raw_name?.trim().toLowerCase();
+          const stockInfo = (normKey && invMap[normKey]) || (rawKey && invMap[rawKey]) || null;
+          const wh = stockInfo ? stockInfo.wh : 0;
+          const sc = stockInfo ? stockInfo.sc : 0;
+          const hasBranchStock = (wh + sc) > 0;
+
+          let finalPrice = item.price;
+          if ((doc.doc_type === 'gift' || doc.doc_type === 'media') && (item.price === 'Акция' || !item.price) && mainGiftDesc) {
+            finalPrice = mainGiftDesc;
+          }
+
           return {
             ...item,
-            stock_wh: stockResult.wh,
-            stock_sc: stockResult.sc,
-            is_in_stock: stockResult.inStock
+            price: finalPrice,
+            stock_wh: wh,
+            stock_sc: sc,
+            is_in_stock: hasBranchStock
           };
         });
 
-        // Если в наличии ничего не найдено, проверяем есть ли вообще товары в документе
         setDocItems(enrichedItems);
         return;
       }

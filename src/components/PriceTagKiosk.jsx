@@ -3,6 +3,7 @@ import { supabase } from '../supabaseClient';
 import PriceTagCard from './PriceTagCard';
 import PriceTagSettingsModal from './PriceTagSettingsModal';
 import { getDefaultLaptopSpecs, isValidPrice } from '../utils/specsParser';
+import { MECHTA_LOGO_DATA_URL } from '../assets/logoBase64';
 
 export default function PriceTagKiosk({ onBackToDashboard }) {
   // Load saved config or fallback to default
@@ -39,7 +40,7 @@ export default function PriceTagKiosk({ onBackToDashboard }) {
   const [showControls, setShowControls] = useState(true);
   const hideControlsTimeout = useRef(null);
 
-  // OLED / Anti-Burn-in Pixel Shift State (Continuous silky drift across all screen elements)
+  // OLED / Anti-Burn-in Pixel Shift State (Silky drift for all visual elements)
   const [pixelShift, setPixelShift] = useState({ x: 0, y: 0, bgX: 0, bgY: 0, logoX: 0, logoY: 0 });
 
   // Save config changes to localStorage
@@ -88,7 +89,7 @@ export default function PriceTagKiosk({ onBackToDashboard }) {
     };
   }, [isSettingsOpen]);
 
-  // OLED / Display Anti-Burn-in Timer: Gently shift coordinates of ALL elements every 40s
+  // OLED / Display Anti-Burn-in Timer: Smoothly drift coordinates every 35s
   useEffect(() => {
     if (config.oledProtection === false) {
       setPixelShift({ x: 0, y: 0, bgX: 0, bgY: 0, logoX: 0, logoY: 0 });
@@ -96,16 +97,16 @@ export default function PriceTagKiosk({ onBackToDashboard }) {
     }
 
     const shiftInterval = setInterval(() => {
-      // Dynamic shift ranges to protect OLED subpixels from static display retention
+      // Shift coordinates across all screen boundaries to eliminate subpixel burn-in
       const newX = Math.round((Math.random() - 0.5) * 80);
       const newY = Math.round((Math.random() - 0.5) * 60);
-      const newBgX = Math.round((Math.random() - 0.5) * 50);
-      const newBgY = Math.round((Math.random() - 0.5) * 50);
-      const newLogoX = Math.round((Math.random() - 0.5) * 40);
-      const newLogoY = Math.round((Math.random() - 0.5) * 30);
+      const newBgX = Math.round((Math.random() - 0.5) * 60);
+      const newBgY = Math.round((Math.random() - 0.5) * 60);
+      const newLogoX = Math.round((Math.random() - 0.5) * 50);
+      const newLogoY = Math.round((Math.random() - 0.5) * 35);
 
       setPixelShift({ x: newX, y: newY, bgX: newBgX, bgY: newBgY, logoX: newLogoX, logoY: newLogoY });
-    }, 40000);
+    }, 35000);
 
     return () => clearInterval(shiftInterval);
   }, [config.oledProtection]);
@@ -176,6 +177,7 @@ export default function PriceTagKiosk({ onBackToDashboard }) {
         const { data: giftItems } = await supabase
           .from('document_items')
           .select(`
+            document_id,
             price, 
             raw_name, 
             normalized_name,
@@ -187,14 +189,35 @@ export default function PriceTagKiosk({ onBackToDashboard }) {
           .limit(10);
 
         if (giftItems && giftItems.length > 0) {
-          const matchingGift = giftItems.find(g => {
+          const matchingGiftItem = giftItems.find(g => {
             const raw = (g.raw_name || '').toLowerCase();
             const norm = (g.normalized_name || '').toLowerCase();
             return raw.includes(normalizedTarget) || norm.includes(normalizedTarget) || normalizedTarget.includes(raw);
           });
 
-          if (matchingGift && matchingGift.price) {
-            setConfig(prev => ({ ...prev, activeGift: matchingGift.price }));
+          if (matchingGiftItem) {
+            let giftName = matchingGiftItem.price;
+
+            // If the row simply says "Акция", inherit the real gift name from row 1 of that gift document
+            if (!giftName || giftName === 'Акция' || isValidPrice(giftName)) {
+              const { data: topRows } = await supabase
+                .from('document_items')
+                .select('price')
+                .eq('document_id', matchingGiftItem.document_id)
+                .order('id', { ascending: true })
+                .limit(5);
+
+              if (topRows) {
+                const foundName = topRows.find(r => r.price && r.price !== 'Акция' && !isValidPrice(r.price));
+                if (foundName) {
+                  giftName = foundName.price;
+                }
+              }
+            }
+
+            if (giftName && giftName !== 'Акция') {
+              setConfig(prev => ({ ...prev, activeGift: giftName }));
+            }
           }
         }
       } catch (err) {
@@ -225,8 +248,6 @@ export default function PriceTagKiosk({ onBackToDashboard }) {
                   setIsUpdatedPulse(true);
                   setTimeout(() => setIsUpdatedPulse(false), 4000);
                 }
-              } else if (String(newRow.price).toLowerCase().includes('подарок')) {
-                setConfig(prev => ({ ...prev, activeGift: newRow.price }));
               }
             }
           }
@@ -249,8 +270,8 @@ export default function PriceTagKiosk({ onBackToDashboard }) {
       };
     }
 
-    const cx = 70 + (pixelShift.bgX / 4);
-    const cy = 30 + (pixelShift.bgY / 4);
+    const cx = 70 + (pixelShift.bgX / 3.5);
+    const cy = 30 + (pixelShift.bgY / 3.5);
 
     switch (config.backgroundTheme) {
       case 'electric_blue':
@@ -267,7 +288,7 @@ export default function PriceTagKiosk({ onBackToDashboard }) {
 
   return (
     <div 
-      className="relative w-screen h-screen overflow-hidden flex items-center justify-center select-none transition-all duration-[7000ms] ease-in-out"
+      className="relative w-screen h-screen overflow-hidden flex items-center justify-center select-none transition-all duration-[6000ms] ease-in-out"
       style={getBackgroundStyle()}
     >
       
@@ -276,21 +297,21 @@ export default function PriceTagKiosk({ onBackToDashboard }) {
         <>
           {/* Drifting ambient glows */}
           <div 
-            className="absolute -top-32 -right-32 w-96 h-96 bg-white/10 rounded-full blur-3xl pointer-events-none transition-transform duration-[7000ms] ease-in-out"
+            className="absolute -top-32 -right-32 w-96 h-96 bg-white/10 rounded-full blur-3xl pointer-events-none transition-transform duration-[6000ms] ease-in-out"
             style={{ transform: `translate3d(${pixelShift.bgX * 1.5}px, ${pixelShift.bgY * 1.5}px, 0)` }}
           />
           <div 
-            className="absolute -bottom-32 -left-32 w-96 h-96 bg-rose-500/20 rounded-full blur-3xl pointer-events-none transition-transform duration-[7000ms] ease-in-out"
+            className="absolute -bottom-32 -left-32 w-96 h-96 bg-rose-500/20 rounded-full blur-3xl pointer-events-none transition-transform duration-[6000ms] ease-in-out"
             style={{ transform: `translate3d(${-pixelShift.bgX * 1.5}px, ${-pixelShift.bgY * 1.5}px, 0)` }}
           />
 
-          {/* Top Right Official Mechta.kz Logo Badge with OLED Drift */}
+          {/* Top Right Embedded Official Mechta.kz Logo Badge with OLED Drift */}
           <div 
-            className="absolute top-6 right-8 sm:top-10 sm:right-14 z-10 flex items-center gap-2 bg-white px-4 py-2 rounded-2xl shadow-xl backdrop-blur-md border border-white/80 transition-transform duration-[7000ms] ease-in-out"
+            className="absolute top-6 right-8 sm:top-10 sm:right-14 z-10 flex items-center gap-2 bg-white px-4 py-2 rounded-2xl shadow-xl backdrop-blur-md border border-white/80 transition-transform duration-[6000ms] ease-in-out"
             style={{ transform: `translate3d(${pixelShift.logoX}px, ${pixelShift.logoY}px, 0)` }}
           >
             <img 
-              src="/logo_mechta.png" 
+              src={MECHTA_LOGO_DATA_URL} 
               alt="Mechta.kz" 
               className="h-6 sm:h-7 object-contain" 
             />
@@ -298,7 +319,7 @@ export default function PriceTagKiosk({ onBackToDashboard }) {
 
           {/* Background Accent 3D shapes with OLED Drift */}
           <div 
-            className="absolute right-10 sm:right-24 bottom-10 sm:bottom-16 pointer-events-none opacity-20 sm:opacity-35 hidden md:block transition-transform duration-[7000ms] ease-in-out"
+            className="absolute right-10 sm:right-24 bottom-10 sm:bottom-16 pointer-events-none opacity-20 sm:opacity-35 hidden md:block transition-transform duration-[6000ms] ease-in-out"
             style={{ transform: `translate3d(${pixelShift.bgX * 0.8}px, ${pixelShift.bgY * 0.8}px, 0)` }}
           >
             <svg width="340" height="340" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -314,7 +335,7 @@ export default function PriceTagKiosk({ onBackToDashboard }) {
         Main Digital Price Tag Component (with smooth OLED Anti-Burn-in Pixel Shift) 
       */}
       <div 
-        className="relative z-20 transition-transform duration-[7000ms] cubic-bezier(0.4, 0, 0.2, 1) scale-95 sm:scale-100 lg:scale-105"
+        className="relative z-20 transition-transform duration-[6000ms] cubic-bezier(0.4, 0, 0.2, 1) scale-95 sm:scale-100 lg:scale-105"
         style={{
           transform: `translate3d(${pixelShift.x}px, ${pixelShift.y}px, 0)`
         }}

@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { generateQRCodeSVG } from '../utils/qrcode';
 import { formatPrice, calculateInstallment } from '../utils/specsParser';
+import { MECHTA_LOGO_DATA_URL } from '../assets/logoBase64';
 
 // Spec Icon definitions matching the digital price tag aesthetic
 const SpecIcon = ({ name }) => {
@@ -132,7 +133,7 @@ export default function PriceTagCard({
         PROMO SHIELD & INSTALLMENT BLOCK (Positioned to the left without blocking card content) 
       */}
       {showPromoShield && (
-        <div className="absolute -left-28 sm:-left-36 md:-left-44 top-10 sm:top-14 z-10 w-32 sm:w-40 md:w-44 -rotate-3 hover:rotate-0 transition-transform duration-300 pointer-events-auto">
+        <div className="absolute -left-28 sm:-left-36 md:-left-44 top-8 sm:top-12 z-10 w-32 sm:w-40 md:w-44 -rotate-3 hover:rotate-0 transition-transform duration-300 pointer-events-auto">
           
           <div className="relative bg-gradient-to-br from-[#d80064] via-[#c00057] to-[#800033] text-white rounded-2xl p-3 shadow-2xl border-2 border-white/90 overflow-hidden flex flex-col items-center text-center">
             
@@ -175,16 +176,16 @@ export default function PriceTagCard({
         }`}
       >
         
-        {/* Top Header with Authentic Mechta Logo & Product Title */}
+        {/* Top Header with Authentic Embedded Mechta Logo & Product Title */}
         <div className="bg-gradient-to-r from-[#800033] via-[#a8004e] to-[#800033] text-white p-3.5 sm:p-4 text-center relative overflow-hidden">
           
           {/* Subtle glossy overlay */}
           <div className="absolute inset-0 bg-gradient-to-b from-white/15 to-transparent pointer-events-none" />
 
-          {/* Authentic Mechta Logo */}
+          {/* Authentic Mechta Logo (Embedded Base64 - 0% 404 risk) */}
           <div className="flex items-center justify-center gap-1.5 mb-2">
             <img 
-              src="/logo_mechta.png" 
+              src={MECHTA_LOGO_DATA_URL} 
               alt="Mechta.kz" 
               className="h-6 sm:h-7 object-contain brightness-0 invert filter drop-shadow-sm" 
             />
@@ -224,15 +225,15 @@ export default function PriceTagCard({
         {/* Dedicated Gift / Bonus Window if active */}
         {currentGift && (
           <div className="px-3.5 pb-2">
-            <div className="bg-gradient-to-r from-purple-700 via-pink-700 to-rose-700 text-white p-2 sm:p-2.5 rounded-xl shadow-md flex items-center gap-2 border border-purple-300/40 animate-fade-in">
-              <div className="w-7 h-7 rounded-lg bg-white/20 flex items-center justify-center text-sm shrink-0 shadow-inner">
+            <div className="bg-gradient-to-r from-purple-700 via-pink-700 to-rose-700 text-white p-2.5 rounded-xl shadow-md flex items-center gap-2.5 border border-purple-300/40 animate-fade-in">
+              <div className="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center text-base shrink-0 shadow-inner">
                 🎁
               </div>
               <div className="min-w-0 flex-1">
-                <div className="text-[8px] sm:text-[9px] font-black uppercase tracking-wider text-yellow-300">
+                <div className="text-[8.5px] sm:text-[9.5px] font-black uppercase tracking-wider text-yellow-300">
                   Подарок к покупке:
                 </div>
-                <div className="text-[11px] sm:text-xs font-bold truncate text-white leading-tight">
+                <div className="text-[11.5px] sm:text-xs font-bold truncate text-white leading-tight">
                   {currentGift}
                 </div>
               </div>

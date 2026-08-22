@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
-import { parseSpecsFromRawName, getDefaultLaptopSpecs, formatPrice, isValidPrice, findMatchingInventoryStock } from '../utils/specsParser';
+import { parseSpecsFromRawName, getDefaultLaptopSpecs, formatPrice, isValidPrice } from '../utils/specsParser';
+import { MECHTA_LOGO_DATA_URL } from '../assets/logoBase64';
 
 export default function PriceTagSettingsModal({
   isOpen,
@@ -95,10 +96,11 @@ export default function PriceTagSettingsModal({
               });
             }
 
-            // Gifts
+            // Gifts with inheritance
             const { data: giftDocs } = await supabase
               .from('document_items')
               .select(`
+                document_id,
                 normalized_name, 
                 raw_name, 
                 price, 
@@ -108,13 +110,30 @@ export default function PriceTagSettingsModal({
               .in('normalized_name', names)
               .order('created_at', { ascending: false });
 
-            if (giftDocs) {
-              giftDocs.forEach(g => {
+            if (giftDocs && giftDocs.length > 0) {
+              for (const g of giftDocs) {
                 const k = g.normalized_name?.trim().toLowerCase();
-                if (k && !giftMap[k] && g.price) {
-                  giftMap[k] = g.price;
+                if (k && !giftMap[k]) {
+                  let giftName = g.price;
+                  if (!giftName || giftName === 'Акция' || isValidPrice(giftName)) {
+                    // Inherit from top row
+                    const { data: topRow } = await supabase
+                      .from('document_items')
+                      .select('price')
+                      .eq('document_id', g.document_id)
+                      .order('id', { ascending: true })
+                      .limit(5);
+
+                    if (topRow) {
+                      const found = topRow.find(r => r.price && r.price !== 'Акция' && !isValidPrice(r.price));
+                      if (found) giftName = found.price;
+                    }
+                  }
+                  if (giftName && giftName !== 'Акция') {
+                    giftMap[k] = giftName;
+                  }
                 }
-              });
+              }
             }
           }
         }
@@ -248,10 +267,10 @@ export default function PriceTagSettingsModal({
     <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-6 select-none animate-in fade-in duration-200">
       <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden border border-slate-200 dark:border-slate-800">
         
-        {/* Header */}
+        {/* Header with embedded logo */}
         <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-950/50">
           <div className="flex items-center gap-3">
-            <img src="/logo_mechta.png" alt="Mechta.kz" className="h-6 object-contain" />
+            <img src={MECHTA_LOGO_DATA_URL} alt="Mechta.kz" className="h-6 object-contain" />
             <div>
               <h2 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white leading-tight">
                 Настройка витринного ценника
