@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
-import { parseSpecsFromRawName, getDefaultLaptopSpecs, formatPrice, isValidPrice } from '../utils/specsParser';
+import { parseSpecsFromRawName, getDefaultLaptopSpecs, formatPrice, isValidPrice, findMatchingInventoryStock } from '../utils/specsParser';
 
 export default function PriceTagSettingsModal({
   isOpen,
@@ -22,7 +22,9 @@ export default function PriceTagSettingsModal({
   const [config, setConfig] = useState(currentConfig || {
     title: '',
     sku: '37230025006',
+    basePrice: '599990',
     price: '529990',
+    activeGift: '',
     brandName: 'МЕЧТА',
     showPromoShield: true,
     promoShieldText: 'АРТЫҚ ТӨЛЕМСІЗ БӨЛІП ТӨЛЕУ 0-0-24',
@@ -43,7 +45,7 @@ export default function PriceTagSettingsModal({
     }
   }, [currentConfig, isOpen]);
 
-  // Live search in Supabase inventory & non-gift documents
+  // Live search in Supabase inventory & documents
   useEffect(() => {
     const query = searchQuery.trim();
     if (!query) {
@@ -54,19 +56,22 @@ export default function PriceTagSettingsModal({
     const timeout = setTimeout(async () => {
       setSearching(true);
       try {
-        // 1. Search in inventory
+        // 1. Search in inventory of selected branch
         const { data: invData } = await supabase
           .from('inventory')
           .select('*')
           .ilike('raw_name', `%${query}%`)
           .eq('branch', selectedBranch)
-          .limit(25);
+          .limit(30);
 
-        // 2. Fetch prices STRICTLY from non-gift documents with valid prices
+        // 2. Fetch prices STRICTLY from non-gift promo documents
         let priceMap = {};
+        let giftMap = {};
+
         if (invData && invData.length > 0) {
           const names = invData.map(i => i.normalized_name).filter(Boolean);
           if (names.length > 0) {
+            // Promo prices
             const { data: docItems } = await supabase
               .from('document_items')
               .select(`
@@ -89,6 +94,28 @@ export default function PriceTagSettingsModal({
                 }
               });
             }
+
+            // Gifts
+            const { data: giftDocs } = await supabase
+              .from('document_items')
+              .select(`
+                normalized_name, 
+                raw_name, 
+                price, 
+                documents!inner(doc_type)
+              `)
+              .eq('documents.doc_type', 'gift')
+              .in('normalized_name', names)
+              .order('created_at', { ascending: false });
+
+            if (giftDocs) {
+              giftDocs.forEach(g => {
+                const k = g.normalized_name?.trim().toLowerCase();
+                if (k && !giftMap[k] && g.price) {
+                  giftMap[k] = g.price;
+                }
+              });
+            }
           }
         }
 
@@ -100,7 +127,8 @@ export default function PriceTagSettingsModal({
             normalized_name: item.normalized_name,
             stock_warehouse: item.stock_warehouse,
             stock_showcase: item.stock_showcase,
-            price: priceMap[k] || '—'
+            price: priceMap[k] || '—',
+            gift: giftMap[k] || ''
           };
         });
 
@@ -118,13 +146,16 @@ export default function PriceTagSettingsModal({
   // When an item is picked from DB search
   const handleSelectProduct = (item) => {
     const parsed = parseSpecsFromRawName(item.raw_name);
-    const cleanPrice = isValidPrice(item.price) ? String(item.price).replace(/[₸тг\s]/gi, '').trim() : config.price;
+    const cleanPromoPrice = isValidPrice(item.price) ? String(item.price).replace(/[₸тг\s]/gi, '').trim() : config.price;
+    const baseCalculated = cleanPromoPrice ? String(Math.round(Number(cleanPromoPrice) * 1.15)) : config.basePrice;
 
     const newConf = {
       ...config,
       title: item.raw_name,
       sku: parsed.sku || String(item.id),
-      price: cleanPrice || '529990',
+      basePrice: baseCalculated,
+      price: cleanPromoPrice || '529990',
+      activeGift: item.gift || '',
       specs: parsed.specs,
       branch: selectedBranch
     };
@@ -219,14 +250,16 @@ export default function PriceTagSettingsModal({
         
         {/* Header */}
         <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-950/50">
-          <div>
-            <h2 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse" />
-              Настройка витринного ценника
-            </h2>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              Выбор номенклатуры из базы, характеристики и оформление экрана
-            </p>
+          <div className="flex items-center gap-3">
+            <img src="/logo_mechta.png" alt="Mechta.kz" className="h-6 object-contain" />
+            <div>
+              <h2 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white leading-tight">
+                Настройка витринного ценника
+              </h2>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                Номенклатура, базовая/акционная цена, подарки и защита OLED
+              </p>
+            </div>
           </div>
           <button
             onClick={onClose}
@@ -256,7 +289,7 @@ export default function PriceTagSettingsModal({
                 : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'
             }`}
           >
-            2. Характеристики и цена
+            2. Цены, подарок и характеристики
           </button>
           <button
             onClick={() => setActiveTab('theme')}
@@ -327,10 +360,15 @@ export default function PriceTagSettingsModal({
                         <p className="text-xs font-bold text-slate-800 dark:text-slate-100 group-hover:text-rose-600 dark:group-hover:text-rose-400 transition leading-snug">
                           {item.raw_name}
                         </p>
-                        <div className="flex items-center gap-2 mt-1 text-[10px] text-slate-400">
+                        <div className="flex items-center gap-2 mt-1 text-[10px] text-slate-400 flex-wrap">
                           <span>Склад: <b className="text-blue-600">{item.stock_warehouse || 0}</b></span>
                           <span>•</span>
                           <span>Витрина: <b className="text-amber-600">{item.stock_showcase || 0}</b></span>
+                          {item.gift && (
+                            <span className="text-purple-600 dark:text-purple-400 font-bold bg-purple-50 dark:bg-purple-950/40 px-1 rounded">
+                              🎁 {item.gift}
+                            </span>
+                          )}
                         </div>
                       </div>
                       <div className="text-right shrink-0">
@@ -348,7 +386,7 @@ export default function PriceTagSettingsModal({
             </div>
           )}
 
-          {/* TAB 2: SPECS & PRICE */}
+          {/* TAB 2: SPECS, PRICES & GIFT */}
           {activeTab === 'specs' && (
             <div className="space-y-4">
               
@@ -381,30 +419,57 @@ export default function PriceTagSettingsModal({
                 />
               </div>
 
-              {/* Price & SKU */}
-              <div className="grid grid-cols-2 gap-3">
+              {/* Prices: Base (Crossed-out) + Special Promo Price */}
+              <div className="grid grid-cols-3 gap-3 bg-slate-50 dark:bg-slate-800/40 p-3 rounded-xl border border-slate-200 dark:border-slate-700">
                 <div>
-                  <label className="block text-[11px] font-bold uppercase text-slate-400 tracking-wider mb-1">
-                    Цена акции (тг)
+                  <label className="block text-[10px] font-bold uppercase text-slate-400 tracking-wider mb-1">
+                    Базовая цена (зачеркнутая)
                   </label>
                   <input
                     type="text"
-                    value={config.price}
-                    onChange={(e) => setConfig({ ...config, price: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-900 dark:text-white outline-none"
+                    placeholder="например 599990"
+                    value={config.basePrice || ''}
+                    onChange={(e) => setConfig({ ...config, basePrice: e.target.value })}
+                    className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-xs font-bold text-slate-500 line-through outline-none"
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] font-bold uppercase text-slate-400 tracking-wider mb-1">
-                    Артикул / Код товара
+                  <label className="block text-[10px] font-bold uppercase text-rose-500 tracking-wider mb-1">
+                    Акционная цена (спеццена)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="например 529990"
+                    value={config.price}
+                    onChange={(e) => setConfig({ ...config, price: e.target.value })}
+                    className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-700 border border-rose-300 dark:border-rose-800 rounded-lg text-xs font-black text-rose-600 dark:text-rose-400 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-slate-400 tracking-wider mb-1">
+                    Артикул
                   </label>
                   <input
                     type="text"
                     value={config.sku}
                     onChange={(e) => setConfig({ ...config, sku: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-900 dark:text-white outline-none"
+                    className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-xs font-bold text-slate-800 dark:text-slate-200 outline-none"
                   />
                 </div>
+              </div>
+
+              {/* Active Gift field */}
+              <div>
+                <label className="block text-[11px] font-bold uppercase text-purple-600 dark:text-purple-400 tracking-wider mb-1 flex items-center gap-1">
+                  <span>🎁</span> Действующий подарок / Комплект (отобразится в плашке ценника)
+                </label>
+                <input
+                  type="text"
+                  placeholder="Оставьте пустым если подарка нет (или укажите: Сумка ASUS / Наушники / Комплект)"
+                  value={config.activeGift || ''}
+                  onChange={(e) => setConfig({ ...config, activeGift: e.target.value })}
+                  className="w-full px-3 py-2 bg-purple-50/50 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-900 rounded-xl text-xs font-bold text-purple-900 dark:text-purple-300 outline-none"
+                />
               </div>
 
               {/* Specs Editor List */}
@@ -422,7 +487,7 @@ export default function PriceTagSettingsModal({
                   </button>
                 </div>
 
-                <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
+                <div className="space-y-2 max-h-[200px] overflow-y-auto pr-1">
                   {config.specs.map((item, idx) => (
                     <div key={item.id || idx} className="flex items-center gap-2 bg-slate-50 dark:bg-slate-800/60 p-2 rounded-xl border border-slate-200 dark:border-slate-700">
                       
@@ -469,7 +534,7 @@ export default function PriceTagSettingsModal({
             </div>
           )}
 
-          {/* TAB 3: THEME & BRANDING */}
+          {/* TAB 3: THEME & OLED PROTECTION */}
           {activeTab === 'theme' && (
             <div className="space-y-4">
               
@@ -487,7 +552,7 @@ export default function PriceTagSettingsModal({
                       Защита OLED / Дрейф экрана от выгорания (Pixel Shift)
                     </span>
                     <span className="text-[10px] text-emerald-700 dark:text-emerald-400 block mt-0.5">
-                      Периодически плавно смещает ценник и фон на несколько пикселей для предотвращения остаточного изображения на витринных OLED/IPS экранах.
+                      Плавно смещает ценник, логотипы и градиенты по всему экрану для защиты диодов OLED/IPS от выгорания.
                     </span>
                   </div>
                 </label>
@@ -542,7 +607,7 @@ export default function PriceTagSettingsModal({
                 
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
                   {[
-                    { id: 'mechta_magenta', name: 'Малиновый Мечта (Фото)', class: 'from-[#a10e47] via-[#850b39] to-[#590424]' },
+                    { id: 'mechta_magenta', name: 'Малиновый Мечта', class: 'from-[#a10e47] via-[#850b39] to-[#590424]' },
                     { id: 'electric_blue', name: 'Электрик Синий', class: 'from-blue-600 via-indigo-700 to-slate-900' },
                     { id: 'emerald_premium', name: 'Изумрудный', class: 'from-emerald-700 via-teal-800 to-slate-950' },
                     { id: 'oled_dark', name: 'Тёмный Showroom', class: 'from-slate-950 via-slate-900 to-black' }

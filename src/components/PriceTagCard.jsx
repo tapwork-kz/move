@@ -83,6 +83,8 @@ const SpecIcon = ({ name }) => {
 export default function PriceTagCard({
   productData,
   price,
+  basePrice,
+  activeGift,
   sku,
   qrUrl = 'https://mechta.kz',
   brandName = 'МЕЧТА',
@@ -90,15 +92,33 @@ export default function PriceTagCard({
   showPromoShield = true,
   promoShieldText = 'АРТЫҚ ТӨЛЕМСІЗ БӨЛІП ТӨЛЕУ 0-0-24'
 }) {
-  const currentRawPrice = price || productData?.price || '529990';
-  const displayPrice = formatPrice(currentRawPrice);
+  const currentPromoPrice = price || productData?.price || '529990';
+  const currentBasePrice = basePrice || productData?.basePrice || '';
+  const currentGift = activeGift || productData?.activeGift || '';
+
+  const displayPrice = formatPrice(currentPromoPrice);
+  const displayBasePrice = currentBasePrice ? formatPrice(currentBasePrice) : null;
+  const isPromoDiscount = displayBasePrice && displayBasePrice !== displayPrice;
+
+  // Calculate savings if base price is known
+  const discountSavings = useMemo(() => {
+    if (!currentBasePrice || !currentPromoPrice) return null;
+    const b = Number(String(currentBasePrice).replace(/[₸тг\s]/gi, ''));
+    const p = Number(String(currentPromoPrice).replace(/[₸тг\s]/gi, ''));
+    if (!isNaN(b) && !isNaN(p) && b > p) {
+      const diff = b - p;
+      return `-${diff.toLocaleString('ru-RU')} ₸`;
+    }
+    return null;
+  }, [currentBasePrice, currentPromoPrice]);
+
   const displaySku = sku || productData?.sku || '37230025006';
   const displayTitle = productData?.title || 'Ноутбук ASUS ExpertBook B5 Flip B5402FVA-HY0043X 14 FHD Core i5 1340P 1.9 GHz';
   const specs = productData?.specs || [];
 
   // 12 and 24 month calculated installment payments
-  const installment24 = useMemo(() => calculateInstallment(currentRawPrice, 24), [currentRawPrice]);
-  const installment12 = useMemo(() => calculateInstallment(currentRawPrice, 12), [currentRawPrice]);
+  const installment24 = useMemo(() => calculateInstallment(currentPromoPrice, 24), [currentPromoPrice]);
+  const installment12 = useMemo(() => calculateInstallment(currentPromoPrice, 12), [currentPromoPrice]);
 
   const qrSvg = useMemo(() => {
     const targetUrl = qrUrl || (displaySku ? `https://mechta.kz/search/?q=${encodeURIComponent(displaySku)}` : 'https://mechta.kz');
@@ -109,24 +129,23 @@ export default function PriceTagCard({
     <div className="relative flex items-center justify-center select-none font-sans drop-shadow-2xl">
       
       {/* 
-        PROMO SHIELD & INSTALLMENT BLOCK (Matching the photo, positioned to the left without obscuring card content) 
+        PROMO SHIELD & INSTALLMENT BLOCK (Positioned to the left without blocking card content) 
       */}
       {showPromoShield && (
         <div className="absolute -left-28 sm:-left-36 md:-left-44 top-10 sm:top-14 z-10 w-32 sm:w-40 md:w-44 -rotate-3 hover:rotate-0 transition-transform duration-300 pointer-events-auto">
           
-          {/* Metallic / Red shield styling as in photo */}
-          <div className="relative bg-gradient-to-br from-red-600 via-rose-700 to-pink-800 text-white rounded-2xl p-3 shadow-2xl border-2 border-white/90 overflow-hidden flex flex-col items-center text-center">
+          <div className="relative bg-gradient-to-br from-[#d80064] via-[#c00057] to-[#800033] text-white rounded-2xl p-3 shadow-2xl border-2 border-white/90 overflow-hidden flex flex-col items-center text-center">
             
-            {/* Glossy highlight effect */}
+            {/* Glossy highlight */}
             <div className="absolute inset-0 bg-gradient-to-b from-white/25 via-transparent to-black/20 pointer-events-none" />
 
-            {/* Shield Title from photo: АРТЫҚ ТӨЛЕМСІЗ БӨЛІП ТӨЛЕУ / КЕПІЛДІК */}
+            {/* Shield Title from photo */}
             <div className="text-[10px] sm:text-xs font-black uppercase tracking-wider leading-tight text-white drop-shadow">
               АРТЫҚ<br />БАҒАМЕН<br /><span className="text-yellow-300">КЕПІЛДІК</span>
             </div>
 
             {/* Installment Badge */}
-            <div className="my-1.5 bg-yellow-400 text-red-950 px-2 py-0.5 rounded-md text-[9px] sm:text-[10px] font-black tracking-wider uppercase shadow-xs">
+            <div className="my-1.5 bg-yellow-400 text-rose-950 px-2 py-0.5 rounded-md text-[9px] sm:text-[10px] font-black tracking-wider uppercase shadow-xs">
               0 • 0 • 24
             </div>
 
@@ -156,22 +175,19 @@ export default function PriceTagCard({
         }`}
       >
         
-        {/* Top Header with Brand & Product Title */}
-        <div className="bg-gradient-to-r from-[#7a0030] via-[#940a40] to-[#7a0030] text-white p-3.5 sm:p-4 text-center relative overflow-hidden">
+        {/* Top Header with Authentic Mechta Logo & Product Title */}
+        <div className="bg-gradient-to-r from-[#800033] via-[#a8004e] to-[#800033] text-white p-3.5 sm:p-4 text-center relative overflow-hidden">
           
           {/* Subtle glossy overlay */}
           <div className="absolute inset-0 bg-gradient-to-b from-white/15 to-transparent pointer-events-none" />
 
-          {/* Authentic Mechta Logo Banner */}
+          {/* Authentic Mechta Logo */}
           <div className="flex items-center justify-center gap-1.5 mb-2">
-            <div className="w-5 h-5 rounded-full bg-white text-[#800033] flex items-center justify-center shadow-xs">
-              <svg className="w-2.5 h-2.5 fill-current ml-0.5" viewBox="0 0 24 24">
-                <polygon points="5 3 19 12 5 21 5 3" />
-              </svg>
-            </div>
-            <span className="text-sm sm:text-base font-black tracking-widest uppercase text-white drop-shadow-sm">
-              {brandName || 'МЕЧТА'}
-            </span>
+            <img 
+              src="/logo_mechta.png" 
+              alt="Mechta.kz" 
+              className="h-6 sm:h-7 object-contain brightness-0 invert filter drop-shadow-sm" 
+            />
           </div>
 
           {/* Full Product Title */}
@@ -185,7 +201,7 @@ export default function PriceTagCard({
           {specs.map((item, index) => (
             <div key={item.id || index} className="flex items-center gap-3 pt-1.5 first:pt-0">
               
-              {/* Circular Icon Badge matching the photo */}
+              {/* Circular Icon Badge */}
               <div className="w-7 h-7 sm:w-7.5 sm:h-7.5 rounded-full bg-[#fae8f0] text-[#991b52] border border-[#f3cadc] flex items-center justify-center shrink-0 shadow-xs">
                 <SpecIcon name={item.icon || 'cpu'} />
               </div>
@@ -205,7 +221,26 @@ export default function PriceTagCard({
           ))}
         </div>
 
-        {/* Bottom Section: QR Code, Price, SKU */}
+        {/* Dedicated Gift / Bonus Window if active */}
+        {currentGift && (
+          <div className="px-3.5 pb-2">
+            <div className="bg-gradient-to-r from-purple-700 via-pink-700 to-rose-700 text-white p-2 sm:p-2.5 rounded-xl shadow-md flex items-center gap-2 border border-purple-300/40 animate-fade-in">
+              <div className="w-7 h-7 rounded-lg bg-white/20 flex items-center justify-center text-sm shrink-0 shadow-inner">
+                🎁
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-[8px] sm:text-[9px] font-black uppercase tracking-wider text-yellow-300">
+                  Подарок к покупке:
+                </div>
+                <div className="text-[11px] sm:text-xs font-bold truncate text-white leading-tight">
+                  {currentGift}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Bottom Section: QR Code, Price (Base / Crossed-out / Special Promo), SKU */}
         <div className="bg-slate-50/95 border-t border-slate-200 p-3.5 sm:p-4 flex items-center justify-between gap-3">
           
           {/* QR Code */}
@@ -218,14 +253,31 @@ export default function PriceTagCard({
 
           {/* Price & SKU */}
           <div className="flex-1 text-right min-w-0">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
-              Цена
+            
+            {/* If promo is active, show crossed out Base Price */}
+            {isPromoDiscount && (
+              <div className="flex items-center justify-end gap-1.5 mb-0.5">
+                <span className="line-through text-slate-400 font-bold text-xs sm:text-sm">
+                  {displayBasePrice}
+                </span>
+                {discountSavings && (
+                  <span className="bg-red-500 text-white text-[8px] sm:text-[9px] font-black px-1.5 py-0.2 rounded-full uppercase tracking-tight">
+                    {discountSavings}
+                  </span>
+                )}
+              </div>
+            )}
+
+            <span className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+              {isPromoDiscount ? 'Специальная цена' : 'Цена'}
             </span>
-            <div className={`text-xl sm:text-2xl font-black text-slate-950 tracking-tight leading-none transition-colors duration-300 ${
-              isUpdatedPulse ? 'text-emerald-600 animate-pulse' : ''
-            }`}>
+
+            <div className={`text-xl sm:text-2xl font-black tracking-tight leading-none transition-colors duration-300 ${
+              isPromoDiscount ? 'text-rose-600' : 'text-slate-950'
+            } ${isUpdatedPulse ? 'text-emerald-600 animate-pulse' : ''}`}>
               {displayPrice}
             </div>
+
             <div className="text-[10px] sm:text-[11px] text-slate-500 font-bold mt-1 tracking-tight truncate">
               Артикул: <span className="text-slate-800">{displaySku}</span>
             </div>

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from './supabaseClient';
 import PriceTagKiosk from './components/PriceTagKiosk';
+import { findMatchingInventoryStock } from './utils/specsParser';
 
 // === КОМПАКТНЫЕ MATERIAL DESIGN SVG ИКОНКИ ===
 const IconLogin = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 7a2 2 0 012 2v6a2 2 0 01-2 2H9a2 2 0 01-2-2V9a2 2 0 012-2m6 0V5a2 2 0 00-2-2H9a2 2 0 00-2 2v2m6 0h-6M12 11v4m-2-2h4"/></svg>;
@@ -736,54 +737,30 @@ export default function App() {
       if (itemsError) throw itemsError;
 
       if (itemsData && itemsData.length > 0) {
-        const namesToFetch = itemsData.map(i => i.normalized_name).filter(Boolean);
         const targetBranch = getActiveBranch();
 
-        let invMap = {};
-        if (namesToFetch.length > 0) {
-          const { data: invData, error: invError } = await supabase
-            .from('inventory')
-            .select('raw_name, normalized_name, stock_warehouse, stock_showcase')
-            .in('normalized_name', namesToFetch)
-            .eq('branch', targetBranch);
+        // Загружаем номенклатуру выбранного филиала для точного сопоставления
+        const { data: invData, error: invError } = await supabase
+          .from('inventory')
+          .select('raw_name, normalized_name, stock_warehouse, stock_showcase')
+          .eq('branch', targetBranch)
+          .limit(10000);
 
-          if (!invError && invData) {
-            invData.forEach(inv => {
-              const normKey = inv.normalized_name?.trim().toLowerCase();
-              const rawKey = inv.raw_name?.trim().toLowerCase();
-              const wh = inv.stock_warehouse ?? 0;
-              const sc = inv.stock_showcase ?? 0;
-
-              if (normKey) {
-                const curWh = invMap[normKey]?.wh ?? 0;
-                const curSc = invMap[normKey]?.sc ?? 0;
-                invMap[normKey] = { wh: curWh + wh, sc: curSc + sc };
-              }
-              if (rawKey) {
-                const curWh = invMap[rawKey]?.wh ?? 0;
-                const curSc = invMap[rawKey]?.sc ?? 0;
-                invMap[rawKey] = { wh: curWh + wh, sc: curSc + sc };
-              }
-            });
-          }
+        if (invError) {
+          console.error("Ошибка загрузки остатков филиала:", invError);
         }
 
         const enrichedItems = itemsData.map(item => {
-          const normKey = item.normalized_name?.trim().toLowerCase();
-          const rawKey = item.raw_name?.trim().toLowerCase();
-          const stockInfo = (normKey && invMap[normKey]) || (rawKey && invMap[rawKey]) || null;
-          const wh = stockInfo ? stockInfo.wh : 0;
-          const sc = stockInfo ? stockInfo.sc : 0;
-          const hasBranchStock = (wh + sc) > 0;
-
+          const stockResult = findMatchingInventoryStock(item, invData || []);
           return {
             ...item,
-            stock_wh: wh,
-            stock_sc: sc,
-            is_in_stock: hasBranchStock
+            stock_wh: stockResult.wh,
+            stock_sc: stockResult.sc,
+            is_in_stock: stockResult.inStock
           };
         });
 
+        // Если в наличии ничего не найдено, проверяем есть ли вообще товары в документе
         setDocItems(enrichedItems);
         return;
       }

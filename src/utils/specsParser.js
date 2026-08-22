@@ -1,4 +1,69 @@
-// Intelligent specification parser for retail nomenclature
+// Intelligent specification and inventory matching parser for retail
+
+export function normalizeNameForMatching(str = '') {
+  if (!str) return '';
+  return String(str)
+    .toLowerCase()
+    // Homoglyphs replacement (cyrillic to latin)
+    .replace(/а/g, 'a')
+    .replace(/в/g, 'b')
+    .replace(/е/g, 'e')
+    .replace(/к/g, 'k')
+    .replace(/м/g, 'm')
+    .replace(/н/g, 'h')
+    .replace(/о/g, 'o')
+    .replace(/р/g, 'p')
+    .replace(/с/g, 'c')
+    .replace(/т/g, 't')
+    .replace(/у/g, 'y')
+    .replace(/х/g, 'x')
+    // Remove leading SKU / article / brackets
+    .replace(/^\[\d+\]\s*/, '')
+    .replace(/^\d{4,9}\s+/, '')
+    // Remove punctuation & extra whitespace
+    .replace(/[^a-z0-9]/g, '')
+    .trim();
+}
+
+// Robust multi-tier inventory matching for a branch
+export function findMatchingInventoryStock(docItem, inventoryList = []) {
+  if (!docItem || !inventoryList || inventoryList.length === 0) {
+    return { wh: 0, sc: 0, inStock: false };
+  }
+
+  const rawDoc = String(docItem.raw_name || '').trim().toLowerCase();
+  const normDoc = String(docItem.normalized_name || '').trim().toLowerCase();
+  const cleanDocKey = normalizeNameForMatching(docItem.raw_name || docItem.normalized_name);
+
+  // 1. Direct match by raw_name or normalized_name
+  for (const inv of inventoryList) {
+    const invRaw = String(inv.raw_name || '').trim().toLowerCase();
+    const invNorm = String(inv.normalized_name || '').trim().toLowerCase();
+
+    if ((rawDoc && (invRaw === rawDoc || invNorm === rawDoc)) || 
+        (normDoc && (invNorm === normDoc || invRaw === normDoc))) {
+      const wh = inv.stock_warehouse ?? 0;
+      const sc = inv.stock_showcase ?? 0;
+      return { wh, sc, inStock: (wh + sc) > 0, matchedItem: inv };
+    }
+  }
+
+  // 2. Cleaned homoglyph & punctuation match
+  if (cleanDocKey.length >= 4) {
+    for (const inv of inventoryList) {
+      const cleanInvKey = normalizeNameForMatching(inv.raw_name || inv.normalized_name);
+      if (cleanInvKey && (cleanInvKey === cleanDocKey || cleanInvKey.includes(cleanDocKey) || cleanDocKey.includes(cleanInvKey))) {
+        const wh = inv.stock_warehouse ?? 0;
+        const sc = inv.stock_showcase ?? 0;
+        return { wh, sc, inStock: (wh + sc) > 0, matchedItem: inv };
+      }
+    }
+  }
+
+  // 3. Fallback: Check if item is flagged in document
+  const isDocStock = docItem.is_in_stock === true;
+  return { wh: 0, sc: 0, inStock: isDocStock };
+}
 
 export function isValidPrice(price) {
   if (!price) return false;
@@ -180,6 +245,9 @@ export function getDefaultLaptopSpecs() {
     category: 'laptop',
     sku: '37230025006',
     brand: 'МЕЧТА',
+    basePrice: '599990',
+    price: '529990',
+    activeGift: 'Сумка для ноутбука ASUS Nereus Backpack',
     specs: [
       { id: 'cpu', icon: 'cpu', label: 'Процессор', value: '13th Gen Intel(R) Core(TM) i5-1340P' },
       { id: 'screen', icon: 'screen', label: 'Экран', value: '1920 x 1080' },
@@ -196,7 +264,7 @@ export function formatPrice(priceVal) {
   let str = String(priceVal).replace(/[₸тг\s]/gi, '').trim();
   let num = Number(str);
   if (!isNaN(num) && num > 0) {
-    return `${num.toLocaleString('ru-RU')} тг`;
+    return `${num.toLocaleString('ru-RU')} ₸`;
   }
   return String(priceVal);
 }
