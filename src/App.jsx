@@ -738,59 +738,42 @@ export default function App() {
 
       if (itemsData && itemsData.length > 0) {
         const targetBranch = getActiveBranch();
-        const normNames = itemsData.map(i => i.normalized_name).filter(Boolean);
-        const rawNames = itemsData.map(i => i.raw_name).filter(Boolean);
+        const namesToFetch = itemsData.map(i => i.normalized_name).filter(Boolean);
 
-        // Targeted chunked queries to bypass PostgREST 1000 limit and get exact branch stock
-        const invMap = {};
-        const queryPromises = [];
-
-        for (let i = 0; i < normNames.length; i += 30) {
-          const chunk = normNames.slice(i, i + 30);
-          queryPromises.push(
-            supabase
-              .from('inventory')
-              .select('raw_name, normalized_name, stock_warehouse, stock_showcase')
-              .eq('branch', targetBranch)
-              .in('normalized_name', chunk)
-          );
-        }
-
-        for (let i = 0; i < rawNames.length; i += 30) {
-          const chunk = rawNames.slice(i, i + 30);
-          queryPromises.push(
-            supabase
-              .from('inventory')
-              .select('raw_name, normalized_name, stock_warehouse, stock_showcase')
-              .eq('branch', targetBranch)
-              .in('raw_name', chunk)
-          );
-        }
-
-        const responses = await Promise.all(queryPromises);
-        responses.forEach(res => {
-          if (res.data) {
-            res.data.forEach(inv => {
-              const normKey = inv.normalized_name?.trim().toLowerCase();
-              const rawKey = inv.raw_name?.trim().toLowerCase();
-              const wh = inv.stock_warehouse ?? 0;
-              const sc = inv.stock_showcase ?? 0;
-
-              if (normKey) {
-                const curWh = invMap[normKey]?.wh ?? 0;
-                const curSc = invMap[normKey]?.sc ?? 0;
-                invMap[normKey] = { wh: curWh + wh, sc: curSc + sc };
-              }
-              if (rawKey) {
-                const curWh = invMap[rawKey]?.wh ?? 0;
-                const curSc = invMap[rawKey]?.sc ?? 0;
-                invMap[rawKey] = { wh: curWh + wh, sc: curSc + sc };
-              }
-            });
+        let invMap = {};
+        if (namesToFetch.length > 0) {
+          // Чанковая загрузка остатков номенклатур этого документа из филиала
+          const chunks = [];
+          for (let i = 0; i < namesToFetch.length; i += 40) {
+            chunks.push(namesToFetch.slice(i, i + 40));
           }
-        });
 
-        // Gift inheritance: if a gift row has price "Акция", inherit the real gift from top row
+          const chunkPromises = chunks.map(chunk => 
+            supabase
+              .from('inventory')
+              .select('id, raw_name, normalized_name, stock_warehouse, stock_showcase')
+              .in('normalized_name', chunk)
+              .eq('branch', targetBranch)
+          );
+
+          const chunkResponses = await Promise.all(chunkPromises);
+          chunkResponses.forEach(res => {
+            if (res.data) {
+              res.data.forEach(inv => {
+                const normKey = inv.normalized_name?.trim().toLowerCase();
+                if (normKey) {
+                  // Прямое сопоставление (без удвоений)
+                  invMap[normKey] = {
+                    wh: inv.stock_warehouse ?? 0,
+                    sc: inv.stock_showcase ?? 0
+                  };
+                }
+              });
+            }
+          });
+        }
+
+        // Наследование подарка с первой строки документа если указано "Акция"
         let mainGiftDesc = null;
         if (doc.doc_type === 'gift' || doc.doc_type === 'media') {
           const topGift = itemsData.find(i => i.price && i.price !== 'Акция' && isNaN(Number(String(i.price).replace(/[₸тг\s]/gi, ''))));
@@ -799,8 +782,7 @@ export default function App() {
 
         const enrichedItems = itemsData.map(item => {
           const normKey = item.normalized_name?.trim().toLowerCase();
-          const rawKey = item.raw_name?.trim().toLowerCase();
-          const stockInfo = (normKey && invMap[normKey]) || (rawKey && invMap[rawKey]) || null;
+          const stockInfo = normKey ? invMap[normKey] : null;
           const wh = stockInfo ? stockInfo.wh : 0;
           const sc = stockInfo ? stockInfo.sc : 0;
           const hasBranchStock = (wh + sc) > 0;

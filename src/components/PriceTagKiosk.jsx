@@ -260,7 +260,7 @@ export default function PriceTagKiosk({ onBackToDashboard }) {
     };
   }, [config.title]);
 
-  // Background style resolver with OLED pixel shift parallax
+  // Background style resolver with brand magenta #e61672
   const getBackgroundStyle = () => {
     if (config.customBgUrl) {
       return {
@@ -282,7 +282,7 @@ export default function PriceTagKiosk({ onBackToDashboard }) {
         return { background: `radial-gradient(circle at ${cx}% ${cy}%, #1e293b 0%, #0f172a 50%, #020617 100%)` };
       case 'mechta_magenta':
       default:
-        return { background: `radial-gradient(circle at ${cx}% ${cy}%, #c0135a 0%, #8e0b42 45%, #590424 100%)` };
+        return { background: `radial-gradient(circle at ${cx}% ${cy}%, #e61672 0%, #ba0f5a 45%, #7a083a 100%)` };
     }
   };
 
@@ -301,7 +301,7 @@ export default function PriceTagKiosk({ onBackToDashboard }) {
             style={{ transform: `translate3d(${pixelShift.bgX * 1.5}px, ${pixelShift.bgY * 1.5}px, 0)` }}
           />
           <div 
-            className="absolute -bottom-32 -left-32 w-96 h-96 bg-rose-500/20 rounded-full blur-3xl pointer-events-none transition-transform duration-[6000ms] ease-in-out"
+            className="absolute -bottom-32 -left-32 w-96 h-96 bg-[#e61672]/20 rounded-full blur-3xl pointer-events-none transition-transform duration-[6000ms] ease-in-out"
             style={{ transform: `translate3d(${-pixelShift.bgX * 1.5}px, ${-pixelShift.bgY * 1.5}px, 0)` }}
           />
 
@@ -363,7 +363,7 @@ export default function PriceTagKiosk({ onBackToDashboard }) {
         <button
           type="button"
           onClick={() => setIsSettingsOpen(true)}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-600 hover:bg-rose-500 rounded-xl text-xs font-bold transition shadow-sm active:scale-95"
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-[#e61672] hover:bg-[#d60f66] rounded-xl text-xs font-bold transition shadow-sm active:scale-95"
         >
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
           Выбрать товар / Настройки

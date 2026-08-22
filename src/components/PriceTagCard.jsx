@@ -130,12 +130,12 @@ export default function PriceTagCard({
     <div className="relative flex items-center justify-center select-none font-sans drop-shadow-2xl">
       
       {/* 
-        PROMO SHIELD & INSTALLMENT BLOCK (Positioned to the left without blocking card content) 
+        PROMO SHIELD & INSTALLMENT BLOCK (Brand Magenta #e61672, Positioned to the left without blocking card content) 
       */}
       {showPromoShield && (
         <div className="absolute -left-28 sm:-left-36 md:-left-44 top-8 sm:top-12 z-10 w-32 sm:w-40 md:w-44 -rotate-3 hover:rotate-0 transition-transform duration-300 pointer-events-auto">
           
-          <div className="relative bg-gradient-to-br from-[#d80064] via-[#c00057] to-[#800033] text-white rounded-2xl p-3 shadow-2xl border-2 border-white/90 overflow-hidden flex flex-col items-center text-center">
+          <div className="relative bg-gradient-to-br from-[#e61672] via-[#d60f66] to-[#b30852] text-white rounded-2xl p-3 shadow-2xl border-2 border-white/90 overflow-hidden flex flex-col items-center text-center">
             
             {/* Glossy highlight */}
             <div className="absolute inset-0 bg-gradient-to-b from-white/25 via-transparent to-black/20 pointer-events-none" />
@@ -176,13 +176,13 @@ export default function PriceTagCard({
         }`}
       >
         
-        {/* Top Header with Authentic Embedded Mechta Logo & Product Title */}
-        <div className="bg-gradient-to-r from-[#800033] via-[#a8004e] to-[#800033] text-white p-3.5 sm:p-4 text-center relative overflow-hidden">
+        {/* Top Header with Authentic Embedded Mechta Logo & Brand Magenta #e61672 */}
+        <div className="bg-gradient-to-r from-[#e61672] via-[#d60f66] to-[#e61672] text-white p-3.5 sm:p-4 text-center relative overflow-hidden">
           
           {/* Subtle glossy overlay */}
           <div className="absolute inset-0 bg-gradient-to-b from-white/15 to-transparent pointer-events-none" />
 
-          {/* Authentic Mechta Logo (Embedded Base64 - 0% 404 risk) */}
+          {/* Authentic Mechta Logo */}
           <div className="flex items-center justify-center gap-1.5 mb-2">
             <img 
               src={MECHTA_LOGO_DATA_URL} 
@@ -197,13 +197,13 @@ export default function PriceTagCard({
           </h2>
         </div>
 
-        {/* Specs List with round pinkish icon badges */}
+        {/* Specs List with round brand magenta icon badges */}
         <div className="p-3.5 sm:p-4 bg-white divide-y divide-slate-100 space-y-2 sm:space-y-2.5">
           {specs.map((item, index) => (
             <div key={item.id || index} className="flex items-center gap-3 pt-1.5 first:pt-0">
               
               {/* Circular Icon Badge */}
-              <div className="w-7 h-7 sm:w-7.5 sm:h-7.5 rounded-full bg-[#fae8f0] text-[#991b52] border border-[#f3cadc] flex items-center justify-center shrink-0 shadow-xs">
+              <div className="w-7 h-7 sm:w-7.5 sm:h-7.5 rounded-full bg-[#fcecf3] text-[#e61672] border border-[#fad4e5] flex items-center justify-center shrink-0 shadow-xs">
                 <SpecIcon name={item.icon || 'cpu'} />
               </div>
 
@@ -241,7 +241,7 @@ export default function PriceTagCard({
           </div>
         )}
 
-        {/* Bottom Section: QR Code, Price (Base / Crossed-out / Special Promo), SKU */}
+        {/* Bottom Section: QR Code, Price (Always Solid Black), Base Price (Crossed-out) */}
         <div className="bg-slate-50/95 border-t border-slate-200 p-3.5 sm:p-4 flex items-center justify-between gap-3">
           
           {/* QR Code */}
@@ -252,7 +252,7 @@ export default function PriceTagCard({
             />
           </div>
 
-          {/* Price & SKU */}
+          {/* Price (Strictly Solid Black) */}
           <div className="flex-1 text-right min-w-0">
             
             {/* If promo is active, show crossed out Base Price */}
@@ -262,7 +262,7 @@ export default function PriceTagCard({
                   {displayBasePrice}
                 </span>
                 {discountSavings && (
-                  <span className="bg-red-500 text-white text-[8px] sm:text-[9px] font-black px-1.5 py-0.2 rounded-full uppercase tracking-tight">
+                  <span className="bg-[#e61672] text-white text-[8px] sm:text-[9px] font-black px-1.5 py-0.2 rounded-full uppercase tracking-tight">
                     {discountSavings}
                   </span>
                 )}
@@ -273,14 +273,11 @@ export default function PriceTagCard({
               {isPromoDiscount ? 'Специальная цена' : 'Цена'}
             </span>
 
-            <div className={`text-xl sm:text-2xl font-black tracking-tight leading-none transition-colors duration-300 ${
-              isPromoDiscount ? 'text-rose-600' : 'text-slate-950'
-            } ${isUpdatedPulse ? 'text-emerald-600 animate-pulse' : ''}`}>
+            {/* Price is STRICTLY Solid Black */}
+            <div className={`text-2xl sm:text-3xl font-black tracking-tight leading-none text-black ${
+              isUpdatedPulse ? 'text-emerald-600 animate-pulse' : ''
+            }`}>
               {displayPrice}
-            </div>
-
-            <div className="text-[10px] sm:text-[11px] text-slate-500 font-bold mt-1 tracking-tight truncate">
-              Артикул: <span className="text-slate-800">{displaySku}</span>
             </div>
           </div>
 
