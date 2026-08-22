@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from './supabaseClient';
+import PriceTagKiosk from './components/PriceTagKiosk';
 
 // === КОМПАКТНЫЕ MATERIAL DESIGN SVG ИКОНКИ ===
 const IconLogin = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 7a2 2 0 012 2v6a2 2 0 01-2 2H9a2 2 0 01-2-2V9a2 2 0 012-2m6 0V5a2 2 0 00-2-2H9a2 2 0 00-2 2v2m6 0h-6M12 11v4m-2-2h4"/></svg>;
@@ -21,6 +22,17 @@ const IconCheck = () => <svg className="w-3.5 h-3.5 text-green-500" fill="none" 
 const tabOrder = ['new', 'completed', 'gifts', 'archive', 'statement'];
 
 export default function App() {
+  const [appMode, setAppMode] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const hash = window.location.hash;
+      const params = new URLSearchParams(window.location.search);
+      if (hash === '#showcase' || params.get('mode') === 'showcase' || localStorage.getItem('app_mode') === 'showcase') {
+        return 'showcase';
+      }
+    }
+    return 'dashboard';
+  });
+
   const [user, setUser] = useState(null);
   const [authForm, setAuthForm] = useState({ iin: '', password: '' });
   const [authError, setAuthError] = useState('');
@@ -923,6 +935,22 @@ export default function App() {
     return matchesText;
   });
 
+  if (appMode === 'showcase') {
+    return (
+      <PriceTagKiosk
+        onBackToDashboard={() => {
+          setAppMode('dashboard');
+          try {
+            localStorage.setItem('app_mode', 'dashboard');
+            if (window.location.hash === '#showcase') {
+              window.location.hash = '';
+            }
+          } catch (e) {}
+        }}
+      />
+    );
+  }
+
   if (!user) {
     return (
       <div className="min-h-screen bg-slate-900 dark:bg-slate-950 flex items-center justify-center p-4 transition-all duration-500">
@@ -948,6 +976,19 @@ export default function App() {
             </div>
           </div>
           <button type="submit" disabled={authLoading} className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-xl font-bold transition text-sm">Войти</button>
+          
+          <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800">
+            <button
+              type="button"
+              onClick={() => {
+                setAppMode('showcase');
+                try { localStorage.setItem('app_mode', 'showcase'); } catch (e) {}
+              }}
+              className="w-full bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/50 text-rose-700 dark:text-rose-300 py-2.5 rounded-xl font-bold transition text-xs border border-rose-200 dark:border-rose-900/60 flex items-center justify-center gap-2"
+            >
+              <span>🖥️</span> Режим витринного ценника
+            </button>
+          </div>
         </form>
       </div>
     );
@@ -1000,6 +1041,18 @@ export default function App() {
                 </select>
               </div>
             )}
+
+            <button
+              type="button"
+              onClick={() => {
+                setAppMode('showcase');
+                try { localStorage.setItem('app_mode', 'showcase'); } catch (e) {}
+              }}
+              className="flex items-center gap-1 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/50 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900/80 px-2.5 py-1 rounded-lg text-[10px] font-bold transition shadow-2xs"
+              title="Режим витринного ценника"
+            >
+              <span>🖥️</span> Ценник
+            </button>
           </div>
         </header>
 

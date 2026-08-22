@@ -3,10 +3,14 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
+  "main": "electron/main.js",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "electron:dev": "concurrently \"vite\" \"electron .\"",
+    "electron:build": "vite build && electron-builder --win",
+    "build:win": "vite build && electron-builder --win nsis portable"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.43.4",
@@ -14,9 +18,38 @@
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^4.3.0",
-    "vite": "^5.2.11",
     "@tailwindcss/vite": "^4.0.0",
-    "tailwindcss": "^4.0.0"
+    "@vitejs/plugin-react": "^4.3.0",
+    "concurrently": "^8.2.2",
+    "electron": "^30.0.9",
+    "electron-builder": "^24.13.3",
+    "tailwindcss": "^4.0.0",
+    "vite": "^5.2.11"
+  },
+  "build": {
+    "appId": "kz.tapwork.pricetag",
+    "productName": "Витринный Ценник",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "public/**/*"
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "public/favicon.png"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
   }
 }
