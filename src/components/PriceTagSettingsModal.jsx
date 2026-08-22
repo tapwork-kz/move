@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
-import { parseSpecsFromRawName, getDefaultLaptopSpecs, formatPrice } from '../utils/specsParser';
+import { parseSpecsFromRawName, getDefaultLaptopSpecs, formatPrice, isValidPrice } from '../utils/specsParser';
 
 export default function PriceTagSettingsModal({
   isOpen,
@@ -30,7 +30,8 @@ export default function PriceTagSettingsModal({
     backgroundTheme: 'mechta_magenta',
     customBgUrl: '',
     specs: getDefaultLaptopSpecs().specs,
-    branch: 'rozybakieva'
+    branch: 'rozybakieva',
+    oledProtection: true
   });
 
   const [hardwareDetecting, setHardwareDetecting] = useState(false);
@@ -42,7 +43,7 @@ export default function PriceTagSettingsModal({
     }
   }, [currentConfig, isOpen]);
 
-  // Live search in Supabase inventory & documents
+  // Live search in Supabase inventory & non-gift documents
   useEffect(() => {
     const query = searchQuery.trim();
     if (!query) {
@@ -59,23 +60,33 @@ export default function PriceTagSettingsModal({
           .select('*')
           .ilike('raw_name', `%${query}%`)
           .eq('branch', selectedBranch)
-          .limit(20);
+          .limit(25);
 
-        // 2. Fetch prices from document_items
+        // 2. Fetch prices STRICTLY from non-gift documents with valid prices
         let priceMap = {};
         if (invData && invData.length > 0) {
           const names = invData.map(i => i.normalized_name).filter(Boolean);
           if (names.length > 0) {
             const { data: docItems } = await supabase
               .from('document_items')
-              .select('normalized_name, raw_name, price, created_at')
+              .select(`
+                normalized_name, 
+                raw_name, 
+                price, 
+                created_at,
+                documents!inner(doc_type)
+              `)
+              .neq('documents.doc_type', 'gift')
+              .neq('documents.doc_type', 'media')
               .in('normalized_name', names)
               .order('created_at', { ascending: false });
 
             if (docItems) {
               docItems.forEach(d => {
                 const k = d.normalized_name?.trim().toLowerCase();
-                if (k && !priceMap[k]) priceMap[k] = d.price;
+                if (k && !priceMap[k] && isValidPrice(d.price)) {
+                  priceMap[k] = d.price;
+                }
               });
             }
           }
@@ -107,7 +118,7 @@ export default function PriceTagSettingsModal({
   // When an item is picked from DB search
   const handleSelectProduct = (item) => {
     const parsed = parseSpecsFromRawName(item.raw_name);
-    const cleanPrice = item.price !== '—' ? String(item.price).replace(/[₸\s]/g, '') : config.price;
+    const cleanPrice = isValidPrice(item.price) ? String(item.price).replace(/[₸тг\s]/gi, '').trim() : config.price;
 
     const newConf = {
       ...config,
@@ -255,7 +266,7 @@ export default function PriceTagSettingsModal({
                 : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'
             }`}
           >
-            3. Фон и брендинг
+            3. Фон и защита OLED
           </button>
         </div>
 
@@ -286,7 +297,7 @@ export default function PriceTagSettingsModal({
               <div className="relative">
                 <input
                   type="text"
-                  placeholder="Введите наименование, модель или артикул товара (например: ASUS ExpertBook, iPhone, Samsung)..."
+                  placeholder="Введите наименование, модель или артикул (например: ASUS ExpertBook, iPhone, Samsung)..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-medium text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-rose-500"
@@ -374,7 +385,7 @@ export default function PriceTagSettingsModal({
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[11px] font-bold uppercase text-slate-400 tracking-wider mb-1">
-                    Цена (тг)
+                    Цена акции (тг)
                   </label>
                   <input
                     type="text"
@@ -385,7 +396,7 @@ export default function PriceTagSettingsModal({
                 </div>
                 <div>
                   <label className="block text-[11px] font-bold uppercase text-slate-400 tracking-wider mb-1">
-                    Артикул / Код
+                    Артикул / Код товара
                   </label>
                   <input
                     type="text"
@@ -462,11 +473,31 @@ export default function PriceTagSettingsModal({
           {activeTab === 'theme' && (
             <div className="space-y-4">
               
-              {/* Brand & Promo shield */}
+              {/* OLED Burn-in Protection Toggle */}
+              <div className="p-3.5 bg-emerald-50 dark:bg-emerald-950/40 rounded-xl border border-emerald-200 dark:border-emerald-900">
+                <label className="flex items-center gap-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={config.oledProtection !== false}
+                    onChange={(e) => setConfig({ ...config, oledProtection: e.target.checked })}
+                    className="rounded text-emerald-600 focus:ring-0 w-4 h-4"
+                  />
+                  <div>
+                    <span className="text-xs font-bold text-emerald-950 dark:text-emerald-200 block">
+                      Защита OLED / Дрейф экрана от выгорания (Pixel Shift)
+                    </span>
+                    <span className="text-[10px] text-emerald-700 dark:text-emerald-400 block mt-0.5">
+                      Периодически плавно смещает ценник и фон на несколько пикселей для предотвращения остаточного изображения на витринных OLED/IPS экранах.
+                    </span>
+                  </div>
+                </label>
+              </div>
+
+              {/* Brand & QR */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[11px] font-bold uppercase text-slate-400 tracking-wider mb-1">
-                    Название бренда / Магазина
+                    Название бренда в шапке
                   </label>
                   <input
                     type="text"
@@ -498,24 +529,15 @@ export default function PriceTagSettingsModal({
                     className="rounded text-rose-600 focus:ring-0 w-4 h-4"
                   />
                   <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                    Отображать боковой шильдик рассрочки / промо
+                    Отображать боковой щит рассрочки 0-0-24 с расчетом платежей
                   </span>
                 </label>
-                {config.showPromoShield && (
-                  <input
-                    type="text"
-                    value={config.promoShieldText}
-                    onChange={(e) => setConfig({ ...config, promoShieldText: e.target.value })}
-                    className="w-full px-3 py-1.5 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-xs font-semibold text-slate-900 dark:text-white outline-none"
-                    placeholder="Текст на шильдике (например: АРТЫҚ ТӨЛЕМСІЗ БӨЛІП ТӨЛЕУ 0-0-24)"
-                  />
-                )}
               </div>
 
               {/* Background Preset Selection */}
               <div>
                 <label className="block text-[11px] font-bold uppercase text-slate-400 tracking-wider mb-2">
-                  Фоновое оформление экрана
+                  Цветовое оформление фона
                 </label>
                 
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
@@ -547,7 +569,7 @@ export default function PriceTagSettingsModal({
               {/* Custom Image URL */}
               <div>
                 <label className="block text-[11px] font-bold uppercase text-slate-400 tracking-wider mb-1">
-                  Или укажите ссылку на свой фоновый баннер (URL картинки):
+                  Или укажите ссылку на свой фоновый баннер:
                 </label>
                 <input
                   type="text"

@@ -1,5 +1,30 @@
 // Intelligent specification parser for retail nomenclature
 
+export function isValidPrice(price) {
+  if (!price) return false;
+  const s = String(price).toLowerCase().trim();
+  if (s === '' || s === '—' || s === '-' || s === 'null' || s === 'undefined' || s === '0' || s === '0 ₸' || s === '0₸' || s === '0 тг' || s === '0тг') {
+    return false;
+  }
+  if (s.includes('подарок') || s.includes('бонус') || s.includes('скидк') || s.includes('комплект') || s.includes('gift')) {
+    return false;
+  }
+  const cleanNum = s.replace(/[₸тг\s]/gi, '').trim();
+  if (isNaN(cleanNum) || Number(cleanNum) <= 0) {
+    return false;
+  }
+  return true;
+}
+
+export function calculateInstallment(priceVal, months = 24) {
+  if (!priceVal) return '0 ₸';
+  const clean = String(priceVal).replace(/[₸тг\s]/gi, '').trim();
+  const num = Number(clean);
+  if (isNaN(num) || num <= 0) return '0 ₸';
+  const perMonth = Math.round(num / months);
+  return `${perMonth.toLocaleString('ru-RU')} ₸`;
+}
+
 export function parseSpecsFromRawName(rawName = '') {
   if (!rawName) {
     return getDefaultLaptopSpecs();
@@ -168,7 +193,7 @@ export function getDefaultLaptopSpecs() {
 
 export function formatPrice(priceVal) {
   if (!priceVal && priceVal !== 0) return '—';
-  let str = String(priceVal).replace(/[₸\s]/g, '').trim();
+  let str = String(priceVal).replace(/[₸тг\s]/gi, '').trim();
   let num = Number(str);
   if (!isNaN(num) && num > 0) {
     return `${num.toLocaleString('ru-RU')} тг`;

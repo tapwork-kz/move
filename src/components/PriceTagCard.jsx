@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { generateQRCodeSVG } from '../utils/qrcode';
-import { formatPrice } from '../utils/specsParser';
+import { formatPrice, calculateInstallment } from '../utils/specsParser';
 
 // Spec Icon definitions matching the digital price tag aesthetic
 const SpecIcon = ({ name }) => {
@@ -90,27 +90,59 @@ export default function PriceTagCard({
   showPromoShield = true,
   promoShieldText = 'АРТЫҚ ТӨЛЕМСІЗ БӨЛІП ТӨЛЕУ 0-0-24'
 }) {
-  const qrSvg = useMemo(() => {
-    const targetUrl = qrUrl || (sku ? `https://mechta.kz/search/?q=${encodeURIComponent(sku)}` : 'https://mechta.kz');
-    return generateQRCodeSVG(targetUrl, 90);
-  }, [qrUrl, sku]);
-
-  const displayPrice = formatPrice(price || productData?.price || '529990');
+  const currentRawPrice = price || productData?.price || '529990';
+  const displayPrice = formatPrice(currentRawPrice);
   const displaySku = sku || productData?.sku || '37230025006';
   const displayTitle = productData?.title || 'Ноутбук ASUS ExpertBook B5 Flip B5402FVA-HY0043X 14 FHD Core i5 1340P 1.9 GHz';
   const specs = productData?.specs || [];
 
+  // 12 and 24 month calculated installment payments
+  const installment24 = useMemo(() => calculateInstallment(currentRawPrice, 24), [currentRawPrice]);
+  const installment12 = useMemo(() => calculateInstallment(currentRawPrice, 12), [currentRawPrice]);
+
+  const qrSvg = useMemo(() => {
+    const targetUrl = qrUrl || (displaySku ? `https://mechta.kz/search/?q=${encodeURIComponent(displaySku)}` : 'https://mechta.kz');
+    return generateQRCodeSVG(targetUrl, 90);
+  }, [qrUrl, displaySku]);
+
   return (
     <div className="relative flex items-center justify-center select-none font-sans drop-shadow-2xl">
       
-      {/* Optional Side Promo Shield Ribbon (as seen on the showcase laptop in the photo) */}
+      {/* 
+        PROMO SHIELD & INSTALLMENT BLOCK (Matching the photo, positioned to the left without obscuring card content) 
+      */}
       {showPromoShield && (
-        <div className="absolute -left-16 sm:-left-20 top-24 z-10 w-28 sm:w-36 -rotate-6 transform transition hover:rotate-0 duration-300">
-          <div className="bg-gradient-to-br from-red-600 via-rose-600 to-pink-700 text-white rounded-xl p-2.5 shadow-xl border-2 border-white/80 flex flex-col items-center text-center">
-            <span className="text-[10px] sm:text-xs font-black uppercase tracking-wider leading-tight">
-              {promoShieldText || 'РАССРОЧКА 0-0-24'}
-            </span>
-            <div className="mt-1 bg-white/20 px-2 py-0.5 rounded text-[8px] sm:text-[9px] font-bold">
+        <div className="absolute -left-28 sm:-left-36 md:-left-44 top-10 sm:top-14 z-10 w-32 sm:w-40 md:w-44 -rotate-3 hover:rotate-0 transition-transform duration-300 pointer-events-auto">
+          
+          {/* Metallic / Red shield styling as in photo */}
+          <div className="relative bg-gradient-to-br from-red-600 via-rose-700 to-pink-800 text-white rounded-2xl p-3 shadow-2xl border-2 border-white/90 overflow-hidden flex flex-col items-center text-center">
+            
+            {/* Glossy highlight effect */}
+            <div className="absolute inset-0 bg-gradient-to-b from-white/25 via-transparent to-black/20 pointer-events-none" />
+
+            {/* Shield Title from photo: АРТЫҚ ТӨЛЕМСІЗ БӨЛІП ТӨЛЕУ / КЕПІЛДІК */}
+            <div className="text-[10px] sm:text-xs font-black uppercase tracking-wider leading-tight text-white drop-shadow">
+              АРТЫҚ<br />БАҒАМЕН<br /><span className="text-yellow-300">КЕПІЛДІК</span>
+            </div>
+
+            {/* Installment Badge */}
+            <div className="my-1.5 bg-yellow-400 text-red-950 px-2 py-0.5 rounded-md text-[9px] sm:text-[10px] font-black tracking-wider uppercase shadow-xs">
+              0 • 0 • 24
+            </div>
+
+            {/* Realtime Calculated Monthly Payments (12 & 24 mo) */}
+            <div className="w-full bg-black/35 backdrop-blur-xs rounded-xl p-2 mt-1 space-y-1 text-left border border-white/10">
+              <div className="flex items-center justify-between text-[9px] sm:text-[10px]">
+                <span className="text-white/80 font-medium">24 мес:</span>
+                <strong className="text-yellow-300 font-black">{installment24}/мес</strong>
+              </div>
+              <div className="flex items-center justify-between text-[9px] sm:text-[10px] border-t border-white/10 pt-1">
+                <span className="text-white/80 font-medium">12 мес:</span>
+                <strong className="text-white font-black">{installment12}/мес</strong>
+              </div>
+            </div>
+
+            <div className="mt-1.5 text-[8px] text-white/90 font-bold uppercase tracking-tight">
               0% переплаты
             </div>
           </div>
@@ -119,42 +151,42 @@ export default function PriceTagCard({
 
       {/* Main Digital Price Tag Container */}
       <div 
-        className={`w-[310px] sm:w-[340px] md:w-[360px] bg-white rounded-2xl overflow-hidden shadow-2xl border border-slate-200/80 transition-all duration-500 transform ${
+        className={`w-[305px] sm:w-[335px] md:w-[355px] bg-white rounded-2xl overflow-hidden shadow-2xl border border-slate-200/90 transition-all duration-500 transform relative z-20 ${
           isUpdatedPulse ? 'ring-4 ring-emerald-400 scale-[1.02] shadow-emerald-500/30' : ''
         }`}
       >
         
         {/* Top Header with Brand & Product Title */}
-        <div className="bg-gradient-to-r from-[#800033] via-[#940a40] to-[#800033] text-white p-3.5 sm:p-4 text-center relative overflow-hidden">
+        <div className="bg-gradient-to-r from-[#7a0030] via-[#940a40] to-[#7a0030] text-white p-3.5 sm:p-4 text-center relative overflow-hidden">
           
           {/* Subtle glossy overlay */}
           <div className="absolute inset-0 bg-gradient-to-b from-white/15 to-transparent pointer-events-none" />
 
-          {/* Brand Logo Banner */}
+          {/* Authentic Mechta Logo Banner */}
           <div className="flex items-center justify-center gap-1.5 mb-2">
-            <div className="w-5 h-5 rounded-full border-2 border-white flex items-center justify-center bg-white text-[#800033]">
+            <div className="w-5 h-5 rounded-full bg-white text-[#800033] flex items-center justify-center shadow-xs">
               <svg className="w-2.5 h-2.5 fill-current ml-0.5" viewBox="0 0 24 24">
                 <polygon points="5 3 19 12 5 21 5 3" />
               </svg>
             </div>
             <span className="text-sm sm:text-base font-black tracking-widest uppercase text-white drop-shadow-sm">
-              {brandName}
+              {brandName || 'МЕЧТА'}
             </span>
           </div>
 
           {/* Full Product Title */}
-          <h2 className="text-xs sm:text-[13px] font-bold leading-snug tracking-tight text-white/95 line-clamp-3">
+          <h2 className="text-xs sm:text-[12.5px] font-bold leading-snug tracking-tight text-white/95 line-clamp-3">
             {displayTitle}
           </h2>
         </div>
 
         {/* Specs List with round pinkish icon badges */}
-        <div className="p-3.5 sm:p-4 bg-white divide-y divide-slate-100 space-y-2.5 sm:space-y-3">
+        <div className="p-3.5 sm:p-4 bg-white divide-y divide-slate-100 space-y-2 sm:space-y-2.5">
           {specs.map((item, index) => (
             <div key={item.id || index} className="flex items-center gap-3 pt-1.5 first:pt-0">
               
               {/* Circular Icon Badge matching the photo */}
-              <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-[#fae8f0] text-[#991b52] border border-[#f3cadc] flex items-center justify-center shrink-0 shadow-xs">
+              <div className="w-7 h-7 sm:w-7.5 sm:h-7.5 rounded-full bg-[#fae8f0] text-[#991b52] border border-[#f3cadc] flex items-center justify-center shrink-0 shadow-xs">
                 <SpecIcon name={item.icon || 'cpu'} />
               </div>
 
@@ -174,7 +206,7 @@ export default function PriceTagCard({
         </div>
 
         {/* Bottom Section: QR Code, Price, SKU */}
-        <div className="bg-slate-50/90 border-t border-slate-200/80 p-3.5 sm:p-4 flex items-center justify-between gap-3">
+        <div className="bg-slate-50/95 border-t border-slate-200 p-3.5 sm:p-4 flex items-center justify-between gap-3">
           
           {/* QR Code */}
           <div className="w-16 h-16 sm:w-18 sm:h-18 p-1 bg-white rounded-xl shadow-xs border border-slate-200 shrink-0 flex items-center justify-center">

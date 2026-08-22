@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import PriceTagCard from './PriceTagCard';
 import PriceTagSettingsModal from './PriceTagSettingsModal';
-import { getDefaultLaptopSpecs } from '../utils/specsParser';
+import { getDefaultLaptopSpecs, isValidPrice } from '../utils/specsParser';
 
 export default function PriceTagKiosk({ onBackToDashboard }) {
   // Load saved config or fallback to default
@@ -26,7 +26,8 @@ export default function PriceTagKiosk({ onBackToDashboard }) {
       backgroundTheme: 'mechta_magenta',
       customBgUrl: '',
       specs: getDefaultLaptopSpecs().specs,
-      branch: 'rozybakieva'
+      branch: 'rozybakieva',
+      oledProtection: true
     };
   });
 
@@ -35,6 +36,9 @@ export default function PriceTagKiosk({ onBackToDashboard }) {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showControls, setShowControls] = useState(true);
   const hideControlsTimeout = useRef(null);
+
+  // OLED / Anti-Burn-in Pixel Shift State (Periodically gently moves elements on screen)
+  const [pixelShift, setPixelShift] = useState({ x: 0, y: 0, bgX: 0, bgY: 0 });
 
   // Save config changes to localStorage
   const handleSaveConfig = (newConfig) => {
@@ -82,6 +86,26 @@ export default function PriceTagKiosk({ onBackToDashboard }) {
     };
   }, [isSettingsOpen]);
 
+  // OLED / Display Anti-Burn-in Timer: Gently shift coordinates every 45 seconds
+  useEffect(() => {
+    if (config.oledProtection === false) {
+      setPixelShift({ x: 0, y: 0, bgX: 0, bgY: 0 });
+      return;
+    }
+
+    const shiftInterval = setInterval(() => {
+      // Smoothly drift within ±35px on X and ±25px on Y
+      const newX = Math.round((Math.random() - 0.5) * 70);
+      const newY = Math.round((Math.random() - 0.5) * 50);
+      const newBgX = Math.round((Math.random() - 0.5) * 40);
+      const newBgY = Math.round((Math.random() - 0.5) * 40);
+
+      setPixelShift({ x: newX, y: newY, bgX: newBgX, bgY: newBgY });
+    }, 45000); // Shift every 45s with an 8s smooth CSS transition
+
+    return () => clearInterval(shiftInterval);
+  }, [config.oledProtection]);
+
   // Keyboard hotkeys
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -97,29 +121,42 @@ export default function PriceTagKiosk({ onBackToDashboard }) {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isSettingsOpen]);
 
-  // REALTIME SUPABASE SYNC: Listening for price changes in real-time
+  // REALTIME SUPABASE SYNC: Listening ONLY for valid promotion prices (EXCLUDING GIFTS)
   useEffect(() => {
     if (!config?.title) return;
 
     const normalizedTarget = config.title.trim().toLowerCase();
 
-    // Check latest price from database periodically or on mount
+    // Check latest valid promotional price from database
     const checkLatestPrice = async () => {
       try {
-        const { data: items } = await supabase
+        // Query only items whose documents are NOT 'gift' and NOT 'media'
+        const { data: items, error } = await supabase
           .from('document_items')
-          .select('price, raw_name, normalized_name, created_at')
-          .ilike('raw_name', `%${config.title.slice(0, 20)}%`)
+          .select(`
+            price, 
+            raw_name, 
+            normalized_name, 
+            created_at,
+            documents!inner(doc_type)
+          `)
+          .neq('documents.doc_type', 'gift')
+          .neq('documents.doc_type', 'media')
+          .ilike('raw_name', `%${config.title.slice(0, 18)}%`)
           .order('created_at', { ascending: false })
-          .limit(5);
+          .limit(30);
 
-        if (items && items.length > 0) {
-          const matching = items.find(i => 
-            i.raw_name?.toLowerCase().includes(normalizedTarget) || 
-            normalizedTarget.includes(i.raw_name?.toLowerCase())
-          );
-          if (matching && matching.price) {
-            const clean = String(matching.price).replace(/[₸\s]/g, '');
+        if (!error && items && items.length > 0) {
+          // Find first matching item with a VALID real price (ignoring gifts and 0)
+          const validDocItem = items.find(i => {
+            const raw = (i.raw_name || '').toLowerCase();
+            const norm = (i.normalized_name || '').toLowerCase();
+            const matches = raw.includes(normalizedTarget) || norm.includes(normalizedTarget) || normalizedTarget.includes(raw);
+            return matches && isValidPrice(i.price);
+          });
+
+          if (validDocItem && isValidPrice(validDocItem.price)) {
+            const clean = String(validDocItem.price).replace(/[₸тг\s]/gi, '').trim();
             if (clean && clean !== config.price && !isNaN(clean)) {
               setConfig(prev => ({ ...prev, price: clean }));
               setIsUpdatedPulse(true);
@@ -128,7 +165,7 @@ export default function PriceTagKiosk({ onBackToDashboard }) {
           }
         }
       } catch (err) {
-        console.error('Ошибка проверки цены:', err);
+        console.error('Ошибка проверки промо-цены:', err);
       }
     };
 
@@ -142,11 +179,12 @@ export default function PriceTagKiosk({ onBackToDashboard }) {
         { event: '*', schema: 'public', table: 'document_items' },
         (payload) => {
           const newRow = payload.new;
-          if (newRow && newRow.price) {
+          // Strictly verify price is valid and not a gift
+          if (newRow && isValidPrice(newRow.price)) {
             const raw = String(newRow.raw_name || '').toLowerCase();
             const norm = String(newRow.normalized_name || '').toLowerCase();
             if (raw.includes(normalizedTarget) || norm.includes(normalizedTarget) || normalizedTarget.includes(raw)) {
-              const clean = String(newRow.price).replace(/[₸\s]/g, '');
+              const clean = String(newRow.price).replace(/[₸тг\s]/gi, '').trim();
               if (clean && !isNaN(clean)) {
                 setConfig(prev => ({ ...prev, price: clean }));
                 setIsUpdatedPulse(true);
@@ -163,56 +201,68 @@ export default function PriceTagKiosk({ onBackToDashboard }) {
     };
   }, [config.title]);
 
-  // Background style resolver
+  // Background style resolver with OLED pixel shift parallax
   const getBackgroundStyle = () => {
     if (config.customBgUrl) {
       return {
         backgroundImage: `url(${config.customBgUrl})`,
         backgroundSize: 'cover',
-        backgroundPosition: 'center'
+        backgroundPosition: `calc(50% + ${pixelShift.bgX}px) calc(50% + ${pixelShift.bgY}px)`
       };
     }
 
     switch (config.backgroundTheme) {
       case 'electric_blue':
-        return { background: 'radial-gradient(circle at 60% 40%, #1e40af 0%, #1e1b4b 60%, #09090b 100%)' };
+        return { background: `radial-gradient(circle at calc(60% + ${pixelShift.bgX}px) calc(40% + ${pixelShift.bgY}px), #1e40af 0%, #1e1b4b 60%, #09090b 100%)` };
       case 'emerald_premium':
-        return { background: 'radial-gradient(circle at 60% 40%, #065f46 0%, #022c22 60%, #050505 100%)' };
+        return { background: `radial-gradient(circle at calc(60% + ${pixelShift.bgX}px) calc(40% + ${pixelShift.bgY}px), #065f46 0%, #022c22 60%, #050505 100%)` };
       case 'oled_dark':
-        return { background: 'radial-gradient(circle at 50% 50%, #1e293b 0%, #0f172a 50%, #020617 100%)' };
+        return { background: `radial-gradient(circle at calc(50% + ${pixelShift.bgX}px) calc(50% + ${pixelShift.bgY}px), #1e293b 0%, #0f172a 50%, #020617 100%)` };
       case 'mechta_magenta':
       default:
-        return { background: 'radial-gradient(circle at 70% 30%, #c0135a 0%, #900c43 45%, #590424 100%)' };
+        return { background: `radial-gradient(circle at calc(70% + ${pixelShift.bgX}px) calc(30% + ${pixelShift.bgY}px), #c0135a 0%, #8e0b42 45%, #590424 100%)` };
     }
   };
 
   return (
     <div 
-      className="relative w-screen h-screen overflow-hidden flex items-center justify-center select-none"
+      className="relative w-screen h-screen overflow-hidden flex items-center justify-center select-none transition-[background-position,background] duration-[8000ms] ease-in-out"
       style={getBackgroundStyle()}
     >
       
       {/* Decorative Retail Background Graphics */}
       {!config.customBgUrl && (
         <>
-          {/* Subtle brand glow and ambient highlights */}
-          <div className="absolute -top-32 -right-32 w-96 h-96 bg-white/10 rounded-full blur-3xl pointer-events-none" />
-          <div className="absolute -bottom-32 -left-32 w-96 h-96 bg-rose-500/20 rounded-full blur-3xl pointer-events-none" />
+          {/* Subtle ambient glows drifting with OLED protection */}
+          <div 
+            className="absolute -top-32 -right-32 w-96 h-96 bg-white/10 rounded-full blur-3xl pointer-events-none transition-transform duration-[8000ms] ease-in-out"
+            style={{ transform: `translate3d(${pixelShift.bgX}px, ${pixelShift.bgY}px, 0)` }}
+          />
+          <div 
+            className="absolute -bottom-32 -left-32 w-96 h-96 bg-rose-500/20 rounded-full blur-3xl pointer-events-none transition-transform duration-[8000ms] ease-in-out"
+            style={{ transform: `translate3d(${-pixelShift.bgX}px, ${-pixelShift.bgY}px, 0)` }}
+          />
 
-          {/* Top Right Mechta.kz Retail Logo Banner */}
-          <div className="absolute top-6 right-8 sm:top-10 sm:right-14 z-10 flex items-center gap-2 bg-white/95 text-rose-900 px-4 py-2 rounded-2xl shadow-xl backdrop-blur-md border border-white/40">
-            <div className="w-6 h-6 rounded-full bg-rose-700 text-white flex items-center justify-center">
+          {/* Top Right Exact Mechta.kz Retail Capsule Logo (Matching Photo) */}
+          <div 
+            className="absolute top-6 right-8 sm:top-10 sm:right-14 z-10 flex items-center gap-2 bg-white text-[#800033] px-4 py-2 rounded-2xl shadow-xl backdrop-blur-md border border-white/80 transition-transform duration-[8000ms] ease-in-out"
+            style={{ transform: `translate3d(${pixelShift.bgX * 0.5}px, ${pixelShift.bgY * 0.5}px, 0)` }}
+          >
+            <div className="w-6 h-6 rounded-full bg-[#800033] text-white flex items-center justify-center shadow-xs">
               <svg className="w-3 h-3 fill-current ml-0.5" viewBox="0 0 24 24">
                 <polygon points="5 3 19 12 5 21 5 3" />
               </svg>
             </div>
-            <span className="text-base sm:text-lg font-black tracking-tight uppercase text-rose-900">
-              {config.brandName || 'Mechta.kz'}
+            <span className="text-base sm:text-lg font-black tracking-tight text-slate-900">
+              {config.brandName ? (config.brandName === 'МЕЧТА' ? 'Mechta.kz' : config.brandName) : 'Mechta.kz'}
             </span>
           </div>
 
-          {/* Background Illustration Accent (Abstract 3D showroom elements) */}
-          <div className="absolute right-12 sm:right-28 bottom-12 sm:bottom-20 pointer-events-none opacity-25 sm:opacity-40 hidden md:block">
+          {/* Background Accent Character/Objects Placeholder with OLED Drift */}
+          <div 
+            className="absolute right-10 sm:right-24 bottom-10 sm:bottom-16 pointer-events-none opacity-20 sm:opacity-35 hidden md:block transition-transform duration-[8000ms] ease-in-out"
+            style={{ transform: `translate3d(${pixelShift.bgX * 0.7}px, ${pixelShift.bgY * 0.7}px, 0)` }}
+          >
             <svg width="340" height="340" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
               <rect x="20" y="30" width="70" height="140" rx="12" fill="white" fillOpacity="0.3" />
               <rect x="110" y="50" width="70" height="120" rx="12" fill="white" fillOpacity="0.2" />
@@ -222,8 +272,15 @@ export default function PriceTagKiosk({ onBackToDashboard }) {
         </>
       )}
 
-      {/* Main Digital Price Tag Component */}
-      <div className="relative z-20 transition-all duration-300 transform scale-95 sm:scale-100 lg:scale-105">
+      {/* 
+        Main Digital Price Tag Component (with smooth OLED Anti-Burn-in Pixel Shift) 
+      */}
+      <div 
+        className="relative z-20 transition-transform duration-[8000ms] cubic-bezier(0.4, 0, 0.2, 1) scale-95 sm:scale-100 lg:scale-105"
+        style={{
+          transform: `translate3d(${pixelShift.x}px, ${pixelShift.y}px, 0)`
+        }}
+      >
         <PriceTagCard
           productData={config}
           price={config.price}
