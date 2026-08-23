@@ -738,79 +738,65 @@ export default function App() {
 
       if (itemsData && itemsData.length > 0) {
         const targetBranch = getActiveBranch();
-        
-        // Очищаем пробелы и неразрывные пробелы (\u00a0) для надежного поиска
-        const cleanNamesSet = new Set();
-        itemsData.forEach(item => {
-          if (item.raw_name) {
-            cleanNamesSet.add(item.raw_name.replace(/[\s\u00a0]+/g, ' ').trim());
-            cleanNamesSet.add(item.raw_name);
-          }
-          if (item.normalized_name) {
-            cleanNamesSet.add(item.normalized_name.replace(/[\s\u00a0]+/g, ' ').trim());
-            cleanNamesSet.add(item.normalized_name);
-          }
-        });
 
-        const namesArray = Array.from(cleanNamesSet).filter(Boolean);
-        const invPromises = [];
+        // Прямой параллельный поиск остатков по каждой позиции документа (устраняет сбои с кавычками и неразрывными пробелами)
+        const stockPromises = itemsData.map(async (item) => {
+          const raw = item.raw_name ? item.raw_name.trim() : '';
+          const rawClean = raw ? raw.replace(/[\s\u00a0]+/g, ' ') : '';
+          const norm = item.normalized_name ? item.normalized_name.trim() : '';
+          const normClean = norm ? norm.replace(/[\s\u00a0]+/g, ' ') : '';
 
-        // Чанковые запросы в inventory выбранного филиала по raw_name
-        for (let i = 0; i < namesArray.length; i += 30) {
-          const chunk = namesArray.slice(i, i + 30);
-          invPromises.push(
-            supabase
+          // 1. Поиск по точному raw_name
+          if (raw) {
+            const { data: rawMatches } = await supabase
               .from('inventory')
               .select('id, raw_name, normalized_name, stock_warehouse, stock_showcase')
-              .in('raw_name', chunk)
               .eq('branch', targetBranch)
-          );
-        }
+              .eq('raw_name', raw)
+              .limit(1);
+            if (rawMatches && rawMatches.length > 0) return { item, inv: rawMatches[0] };
+          }
 
-        // Чанковые запросы в inventory выбранного филиала по normalized_name
-        for (let i = 0; i < namesArray.length; i += 30) {
-          const chunk = namesArray.slice(i, i + 30);
-          invPromises.push(
-            supabase
+          // 2. Поиск по очищенному raw_name
+          if (rawClean && rawClean !== raw) {
+            const { data: rawCleanMatches } = await supabase
               .from('inventory')
               .select('id, raw_name, normalized_name, stock_warehouse, stock_showcase')
-              .in('normalized_name', chunk)
               .eq('branch', targetBranch)
-          );
-        }
-
-        const responses = await Promise.all(invPromises);
-        const invIndex = {};
-
-        const cleanKey = (s) => {
-          if (!s) return '';
-          let str = String(s).replace(/[\s\u00a0]+/g, ' ').trim().toLowerCase();
-          const homoglyphs = { 'а': 'a', 'в': 'b', 'е': 'e', 'к': 'k', 'м': 'm', 'н': 'h', 'о': 'o', 'р': 'p', 'с': 'c', 'т': 't', 'у': 'y', 'х': 'x' };
-          for (const [cyr, lat] of Object.entries(homoglyphs)) {
-            str = str.split(cyr).join(lat);
+              .eq('raw_name', rawClean)
+              .limit(1);
+            if (rawCleanMatches && rawCleanMatches.length > 0) return { item, inv: rawCleanMatches[0] };
           }
-          return str.replace(/[^a-z0-9]/g, '');
-        };
 
-        const extractArt = (s) => {
-          if (!s) return '';
-          const m = String(s).match(/\(([A-Za-z0-9/\-]+)\)/);
-          return m ? m[1].toLowerCase().trim() : '';
-        };
-
-        responses.forEach(res => {
-          if (res.data) {
-            res.data.forEach(inv => {
-              const ckRaw = cleanKey(inv.raw_name);
-              const ckNorm = cleanKey(inv.normalized_name);
-              const art = extractArt(inv.raw_name);
-
-              if (ckRaw && !invIndex[ckRaw]) invIndex[ckRaw] = inv;
-              if (ckNorm && !invIndex[ckNorm]) invIndex[ckNorm] = inv;
-              if (art && !invIndex[art]) invIndex[art] = inv;
-            });
+          // 3. Поиск по normalized_name
+          if (normClean) {
+            const { data: normMatches } = await supabase
+              .from('inventory')
+              .select('id, raw_name, normalized_name, stock_warehouse, stock_showcase')
+              .eq('branch', targetBranch)
+              .eq('normalized_name', normClean)
+              .limit(1);
+            if (normMatches && normMatches.length > 0) return { item, inv: normMatches[0] };
           }
+
+          // 4. Поиск по подстроке/модели (как в табеле ведомости)
+          if (rawClean) {
+            const cleanKeyword = rawClean.replace(/["'«»]/g, '').trim().slice(0, 32);
+            if (cleanKeyword.length >= 4) {
+              const { data: subMatches } = await supabase
+                .from('inventory')
+                .select('id, raw_name, normalized_name, stock_warehouse, stock_showcase')
+                .eq('branch', targetBranch)
+                .ilike('raw_name', `%${cleanKeyword}%`)
+                .limit(1);
+              if (subMatches && subMatches.length > 0) return { item, inv: subMatches[0] };
+            }
+          }
+
+          return { item, inv: null };
         });
+
+        const results = await Promise.all(stockPromises);
 
         // Наследование подарка с первой строки документа если указано "Акция"
         let mainGiftDesc = null;
@@ -819,14 +805,9 @@ export default function App() {
           if (topGift) mainGiftDesc = topGift.price;
         }
 
-        const enrichedItems = itemsData.map(item => {
-          const ckR = cleanKey(item.raw_name);
-          const ckN = cleanKey(item.normalized_name);
-          const art = extractArt(item.raw_name);
-
-          const matched = invIndex[ckR] || invIndex[ckN] || (art ? invIndex[art] : null);
-          const wh = matched ? (matched.stock_warehouse ?? 0) : 0;
-          const sc = matched ? (matched.stock_showcase ?? 0) : 0;
+        const enrichedItems = results.map(({ item, inv }) => {
+          const wh = inv ? (inv.stock_warehouse ?? 0) : 0;
+          const sc = inv ? (inv.stock_showcase ?? 0) : 0;
           const hasBranchStock = (wh + sc) > 0;
 
           let finalPrice = item.price;
