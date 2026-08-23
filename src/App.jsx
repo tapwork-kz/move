@@ -738,40 +738,79 @@ export default function App() {
 
       if (itemsData && itemsData.length > 0) {
         const targetBranch = getActiveBranch();
-        const namesToFetch = itemsData.map(i => i.normalized_name).filter(Boolean);
-
-        let invMap = {};
-        if (namesToFetch.length > 0) {
-          // Чанковая загрузка остатков номенклатур этого документа из филиала
-          const chunks = [];
-          for (let i = 0; i < namesToFetch.length; i += 40) {
-            chunks.push(namesToFetch.slice(i, i + 40));
+        
+        // Очищаем пробелы и неразрывные пробелы (\u00a0) для надежного поиска
+        const cleanNamesSet = new Set();
+        itemsData.forEach(item => {
+          if (item.raw_name) {
+            cleanNamesSet.add(item.raw_name.replace(/[\s\u00a0]+/g, ' ').trim());
+            cleanNamesSet.add(item.raw_name);
           }
+          if (item.normalized_name) {
+            cleanNamesSet.add(item.normalized_name.replace(/[\s\u00a0]+/g, ' ').trim());
+            cleanNamesSet.add(item.normalized_name);
+          }
+        });
 
-          const chunkPromises = chunks.map(chunk => 
+        const namesArray = Array.from(cleanNamesSet).filter(Boolean);
+        const invPromises = [];
+
+        // Чанковые запросы в inventory выбранного филиала по raw_name
+        for (let i = 0; i < namesArray.length; i += 30) {
+          const chunk = namesArray.slice(i, i + 30);
+          invPromises.push(
+            supabase
+              .from('inventory')
+              .select('id, raw_name, normalized_name, stock_warehouse, stock_showcase')
+              .in('raw_name', chunk)
+              .eq('branch', targetBranch)
+          );
+        }
+
+        // Чанковые запросы в inventory выбранного филиала по normalized_name
+        for (let i = 0; i < namesArray.length; i += 30) {
+          const chunk = namesArray.slice(i, i + 30);
+          invPromises.push(
             supabase
               .from('inventory')
               .select('id, raw_name, normalized_name, stock_warehouse, stock_showcase')
               .in('normalized_name', chunk)
               .eq('branch', targetBranch)
           );
-
-          const chunkResponses = await Promise.all(chunkPromises);
-          chunkResponses.forEach(res => {
-            if (res.data) {
-              res.data.forEach(inv => {
-                const normKey = inv.normalized_name?.trim().toLowerCase();
-                if (normKey) {
-                  // Прямое сопоставление (без удвоений)
-                  invMap[normKey] = {
-                    wh: inv.stock_warehouse ?? 0,
-                    sc: inv.stock_showcase ?? 0
-                  };
-                }
-              });
-            }
-          });
         }
+
+        const responses = await Promise.all(invPromises);
+        const invIndex = {};
+
+        const cleanKey = (s) => {
+          if (!s) return '';
+          let str = String(s).replace(/[\s\u00a0]+/g, ' ').trim().toLowerCase();
+          const homoglyphs = { 'а': 'a', 'в': 'b', 'е': 'e', 'к': 'k', 'м': 'm', 'н': 'h', 'о': 'o', 'р': 'p', 'с': 'c', 'т': 't', 'у': 'y', 'х': 'x' };
+          for (const [cyr, lat] of Object.entries(homoglyphs)) {
+            str = str.split(cyr).join(lat);
+          }
+          return str.replace(/[^a-z0-9]/g, '');
+        };
+
+        const extractArt = (s) => {
+          if (!s) return '';
+          const m = String(s).match(/\(([A-Za-z0-9/\-]+)\)/);
+          return m ? m[1].toLowerCase().trim() : '';
+        };
+
+        responses.forEach(res => {
+          if (res.data) {
+            res.data.forEach(inv => {
+              const ckRaw = cleanKey(inv.raw_name);
+              const ckNorm = cleanKey(inv.normalized_name);
+              const art = extractArt(inv.raw_name);
+
+              if (ckRaw && !invIndex[ckRaw]) invIndex[ckRaw] = inv;
+              if (ckNorm && !invIndex[ckNorm]) invIndex[ckNorm] = inv;
+              if (art && !invIndex[art]) invIndex[art] = inv;
+            });
+          }
+        });
 
         // Наследование подарка с первой строки документа если указано "Акция"
         let mainGiftDesc = null;
@@ -781,10 +820,13 @@ export default function App() {
         }
 
         const enrichedItems = itemsData.map(item => {
-          const normKey = item.normalized_name?.trim().toLowerCase();
-          const stockInfo = normKey ? invMap[normKey] : null;
-          const wh = stockInfo ? stockInfo.wh : 0;
-          const sc = stockInfo ? stockInfo.sc : 0;
+          const ckR = cleanKey(item.raw_name);
+          const ckN = cleanKey(item.normalized_name);
+          const art = extractArt(item.raw_name);
+
+          const matched = invIndex[ckR] || invIndex[ckN] || (art ? invIndex[art] : null);
+          const wh = matched ? (matched.stock_warehouse ?? 0) : 0;
+          const sc = matched ? (matched.stock_showcase ?? 0) : 0;
           const hasBranchStock = (wh + sc) > 0;
 
           let finalPrice = item.price;
