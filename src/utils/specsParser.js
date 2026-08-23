@@ -90,6 +90,98 @@ export function calculateInstallment(priceVal, months = 24) {
   return `${perMonth.toLocaleString('ru-RU')} ₸`;
 }
 
+// Intelligent specification and inventory matching parser for retail
+
+function smartSplitSlashes(str = '') {
+  const parts = [];
+  let current = [];
+  let inParens = 0;
+  for (const char of String(str)) {
+    if (char === '(' || char === '[') {
+      inParens++;
+      current.push(char);
+    } else if (char === ')' || char === ']') {
+      if (inParens > 0) inParens--;
+      current.push(char);
+    } else if (char === '/' && inParens === 0) {
+      parts.push(current.join('').trim());
+      current = [];
+    } else {
+      current.push(char);
+    }
+  }
+  if (current.length > 0) {
+    parts.push(current.join('').trim());
+  }
+  return parts.filter(Boolean);
+}
+
+function formatRam(val) {
+  if (!val) return '16 GB';
+  const s = String(val).trim();
+  if (/^\d+$/.test(s)) return `${s} GB`;
+  if (!/(?:gb|гб)/i.test(s)) return `${s} GB`;
+  return s;
+}
+
+function formatStorage(val) {
+  if (!val) return '512 GB SSD';
+  const s = String(val).trim();
+  const m = s.match(/^(?:SSD)?\s*(\d+)\s*(TB|GB|ТБ|ГБ)?$/i);
+  if (m) {
+    const num = m[1];
+    let unit = m[2];
+    if (!unit) {
+      unit = (num === '1' || num === '2') ? 'TB SSD' : 'GB SSD';
+    } else {
+      unit = `${unit.toUpperCase().replace('ТБ', 'TB').replace('ГБ', 'GB')} SSD`;
+    }
+    return `${num} ${unit}`;
+  }
+  if (!/SSD/i.test(s) && !/HDD/i.test(s) && !/eMMC/i.test(s)) {
+    return `${s} SSD`;
+  }
+  return s;
+}
+
+function formatGpu(gpuName = '', vram = '') {
+  if (!gpuName) return 'Intel® Iris® Xe Graphics';
+  const g = String(gpuName).trim();
+  const vramStr = (vram && /^\d+$/.test(String(vram).trim())) ? ` ${vram} GB` : (vram ? ` ${vram}` : '');
+
+  if (/^RTX\s*\d{4}/i.test(g)) {
+    return `NVIDIA GeForce ${g.toUpperCase()}${vramStr}`;
+  }
+  if (/^GTX\s*\d{4}/i.test(g)) {
+    return `NVIDIA GeForce ${g.toUpperCase()}${vramStr}`;
+  }
+  if (/^(?:Radeon|RX)/i.test(g)) {
+    return `AMD ${g}${vramStr}`;
+  }
+  if (vramStr) {
+    return `${g}${vramStr}`;
+  }
+  return g;
+}
+
+function formatOs(val) {
+  if (!val) return 'FreeDOS / Без ОС';
+  const v = String(val).trim().toLowerCase();
+  if (v.includes('dos') || v.includes('freedos') || v.includes('noos') || v.includes('no_os') || v.includes('без')) {
+    return 'FreeDOS / Без ОС';
+  }
+  if (v.includes('win11') || v.includes('windows 11') || v.includes('w11')) {
+    return 'Microsoft Windows 11';
+  }
+  if (v.includes('win10') || v.includes('windows 10') || v.includes('w10')) {
+    return 'Microsoft Windows 10';
+  }
+  if (v.includes('mac')) {
+    return 'macOS';
+  }
+  return String(val).trim();
+}
+
 export function parseSpecsFromRawName(rawName = '') {
   if (!rawName) {
     return getDefaultLaptopSpecs();
@@ -107,7 +199,7 @@ export function parseSpecsFromRawName(rawName = '') {
 
   // Detect category
   let category = 'laptop';
-  if (lower.includes('ноутбук') || lower.includes('ultrabook') || lower.includes('expertbook') || lower.includes('macbook') || lower.includes('laptop') || lower.includes('thinkpad') || lower.includes('ideapad') || lower.includes('vivobook') || lower.includes('zenbook') || lower.includes('rog') || lower.includes('tuf') || lower.includes('pavilion') || lower.includes('victus') || lower.includes('legion')) {
+  if (lower.includes('ноутбук') || lower.includes('ultrabook') || lower.includes('expertbook') || lower.includes('macbook') || lower.includes('laptop') || lower.includes('thinkpad') || lower.includes('ideapad') || lower.includes('vivobook') || lower.includes('zenbook') || lower.includes('rog') || lower.includes('tuf') || lower.includes('pavilion') || lower.includes('victus') || lower.includes('legion') || lower.includes('nitro')) {
     category = 'laptop';
   } else if (lower.includes('телефон') || lower.includes('смартфон') || lower.includes('iphone') || lower.includes('galaxy') || lower.includes('xiaomi') || lower.includes('redmi') || lower.includes('poco') || lower.includes('vivo') || lower.includes('oppo') || lower.includes('realme') || lower.includes('honor')) {
     category = 'phone';
@@ -117,144 +209,169 @@ export function parseSpecsFromRawName(rawName = '') {
     category = 'general';
   }
 
-  // --- 1. Parse CPU ---
-  let cpu = '';
-  const intelMatch = name.match(/(?:Intel|Core\s*)?(?:i[3579]|Core\s*Ultra\s*[579]|Celeron|Pentium|N\d{3,4})[\s\-]*\d{3,5}[A-Z0-9]*(?:\s*\d+(?:\.\d+)?\s*GHz)?/i);
-  const ryzenMatch = name.match(/(?:AMD\s*)?(?:Ryzen\s*[3579]|Athlon)[\s\-]*\d{3,5}[A-Z0-9]*/i);
-  const appleChipMatch = name.match(/Apple\s*M[1234](?:\s*(?:Pro|Max|Ultra))?/i);
-  const snapdragonMatch = name.match(/(?:Snapdragon|Dimensity|Helio|Exynos|Apple\s*A\d+)\s*[\w\d\s]+/i);
-
-  if (intelMatch) {
-    cpu = intelMatch[0].trim();
-  } else if (ryzenMatch) {
-    cpu = ryzenMatch[0].trim();
-  } else if (appleChipMatch) {
-    cpu = appleChipMatch[0].trim();
-  } else if (snapdragonMatch) {
-    cpu = snapdragonMatch[0].trim();
-  } else {
-    cpu = '13th Gen Intel(R) Core(TM) i5-1340P';
-  }
-
-  // --- 2. Parse Display ---
-  let display = '';
-  const screenDiagMatch = name.match(/(?:1[3-7](?:\.[0-9])?|2[47]|32|43|50|55|65|75|85)(?:["'″\s]*(?:FHD|HD|2K|4K|UHD|QHD|WQXGA|IPS|OLED|Retina)?)/i);
-  const resMatch = name.match(/(?:1920\s*x\s*1080|2560\s*x\s*1600|2880\s*x\s*1800|3840\s*x\s*2160|FHD|OLED|2K|4K)/i);
-
-  if (screenDiagMatch && resMatch) {
-    display = `${screenDiagMatch[0].trim()} (${resMatch[0].trim()})`;
-  } else if (screenDiagMatch) {
-    display = screenDiagMatch[0].trim();
-  } else if (resMatch) {
-    display = resMatch[0].trim();
-  } else {
-    display = '1920 x 1080 FHD IPS';
-  }
-
-  // --- 3. Parse RAM ---
-  let ram = '';
-  const ramMatch = name.match(/(\d{1,2})\s*(?:GB|ГБ|Gb|гб)(?:\s*DDR[45])?/i);
-  if (ramMatch) {
-    ram = `${ramMatch[1]} GB`;
-  } else {
-    ram = '8 GB';
-  }
-
-  // --- 4. Parse Storage / SSD ---
-  let storage = '';
-  const ssdMatch = name.match(/(\d{3,4})\s*(?:GB|ГБ|Gb|гб|TB|ТБ|Tb|тб)\s*(?:SSD|NVMe|eMMC|SSD M\.2)?/i);
-  const multiStorageMatch = name.match(/\b(?:128|256|512|1000|1TB|2TB)\b/i);
-
-  if (ssdMatch) {
-    storage = ssdMatch[0].trim();
-  } else if (multiStorageMatch) {
-    const val = multiStorageMatch[0].toUpperCase();
-    storage = val.includes('TB') ? val : `${val} GB SSD`;
-  } else {
-    storage = '475 GB SSD';
-  }
-
-  // --- 5. Parse GPU ---
-  let gpu = '';
-  const rtxMatch = name.match(/(?:RTX\s*\d{4}(?:\s*Ti)?|GTX\s*\d{4}(?:\s*Ti)?)/i);
-  const radeonMatch = name.match(/Radeon\s*(?:Graphics|RX\s*\d{4})/i);
-  const intelGpuMatch = name.match(/(?:Intel\s*)?(?:Iris\s*Xe|UHD\s*Graphics)/i);
-
-  if (rtxMatch) {
-    gpu = `NVIDIA GeForce ${rtxMatch[0].trim()}`;
-  } else if (radeonMatch) {
-    gpu = `AMD ${radeonMatch[0].trim()}`;
-  } else if (intelGpuMatch) {
-    gpu = intelGpuMatch[0].trim();
-  } else {
-    gpu = 'Intel(R) UHD Graphics';
-  }
-
-  // --- 6. Parse OS ---
-  let os = '';
-  if (lower.includes('win11') || lower.includes('windows 11') || lower.includes('w11')) {
-    os = 'Microsoft Windows 11';
-  } else if (lower.includes('mac') || lower.includes('macos')) {
-    os = 'macOS';
-  } else if (lower.includes('dos') || lower.includes('no os') || lower.includes('без ос') || lower.includes('freedos')) {
-    os = 'FreeDOS / Без ОС';
-  } else {
-    os = 'Microsoft Windows 11 Home';
-  }
-
-  // Build spec rows
-  let specsList = [];
+  // --- Parse Laptop Specifications via Slash Delimiter ---
   if (category === 'laptop') {
-    specsList = [
-      { id: 'cpu', icon: 'cpu', label: 'Процессор', value: cpu },
-      { id: 'screen', icon: 'screen', label: 'Экран', value: display },
-      { id: 'ram', icon: 'ram', label: 'Оперативная память', value: ram },
-      { id: 'ssd', icon: 'ssd', label: 'Накопитель', value: storage },
-      { id: 'gpu', icon: 'gpu', label: 'Видеокарта', value: gpu },
-      { id: 'os', icon: 'os', label: 'ОС', value: os }
+    let parts = smartSplitSlashes(name);
+    let title = parts[0] || name;
+    let screen = '';
+    let cpu = '';
+    let ram = '';
+    let storage = '';
+    let gpu = '';
+    let os = '';
+
+    // Check if screen is attached to title before first slash, e.g. "Model (SKU) 16 WUXGA/Core..."
+    const screenTailMatch = title.match(/\s+(1[3-7](?:[\.,]\d)?(?:\s*[\"\'″])?(?:\s*(?:FHD|HD|2K|4K|WUXGA|WQXGA|OLED|IPS|Retina|QHD|\d+Hz))*)$/i);
+    if (screenTailMatch && parts.length >= 4 && !/(?:Core|Ryzen|Celeron|Pentium|Apple|Ultra)/i.test(screenTailMatch[1])) {
+      screen = screenTailMatch[1].trim();
+      title = title.substring(0, screenTailMatch.index).trim();
+      parts = [title, screen, ...parts.slice(1)];
+    }
+
+    if (parts.length >= 5) {
+      title = parts[0];
+      screen = parts[1];
+      cpu = parts[2];
+      ram = formatRam(parts[3]);
+      storage = formatStorage(parts[4]);
+
+      const remaining = parts.slice(5);
+      if (remaining.length === 0) {
+        if (/ryzen|amd/i.test(cpu)) {
+          gpu = 'AMD Radeon™ Graphics';
+        } else if (/ultra/i.test(cpu)) {
+          gpu = 'Intel® Arc™ Graphics';
+        } else {
+          gpu = 'Intel® Iris® Xe Graphics';
+        }
+        os = 'FreeDOS / Без ОС';
+      } else if (remaining.length === 1) {
+        const val = remaining[0];
+        if (/(?:dos|win|noos|free|без|mac|linux)/i.test(val)) {
+          os = formatOs(val);
+          if (/ryzen|amd/i.test(cpu)) {
+            gpu = 'AMD Radeon™ Graphics';
+          } else if (/ultra/i.test(cpu)) {
+            gpu = 'Intel® Arc™ Graphics';
+          } else {
+            gpu = 'Intel® Iris® Xe Graphics';
+          }
+        } else {
+          gpu = formatGpu(val);
+          os = 'FreeDOS / Без ОС';
+        }
+      } else if (remaining.length === 2) {
+        const [p5, p6] = remaining;
+        if (/^\d+$/.test(p6.trim())) {
+          // p5 = GPU, p6 = VRAM (e.g. RTX3050 / 6)
+          gpu = formatGpu(p5, p6);
+          os = 'FreeDOS / Без ОС';
+        } else {
+          // p5 = GPU, p6 = OS
+          gpu = formatGpu(p5);
+          os = formatOs(p6);
+        }
+      } else if (remaining.length >= 3) {
+        // e.g. RTX3050 / 6 / Dos
+        gpu = formatGpu(remaining[0], remaining[1]);
+        os = formatOs(remaining[2]);
+      }
+    } else {
+      // Fallback regex extraction if no standard slashes
+      const intelMatch = name.match(/(?:Intel|Core\s*)?(?:i[3579]|Core\s*Ultra\s*[579]|Celeron|Pentium|N\d{3,4})[\s\-]*\d{3,5}[A-Z0-9]*(?:\s*\d+(?:\.\d+)?\s*GHz)?/i);
+      const ryzenMatch = name.match(/(?:AMD\s*)?(?:Ryzen\s*[3579]|Athlon)[\s\-]*\d{3,5}[A-Z0-9]*/i);
+      const appleChipMatch = name.match(/Apple\s*M[1234](?:\s*(?:Pro|Max|Ultra))?/i);
+      if (intelMatch) cpu = intelMatch[0].trim();
+      else if (ryzenMatch) cpu = ryzenMatch[0].trim();
+      else if (appleChipMatch) cpu = appleChipMatch[0].trim();
+      else cpu = 'Intel® Core™ i5';
+
+      const screenDiagMatch = name.match(/(?:1[3-7](?:\.[0-9])?)(?:["'″\s]*(?:FHD|HD|2K|4K|UHD|QHD|WUXGA|WQXGA|IPS|OLED|Retina)?)/i);
+      screen = screenDiagMatch ? screenDiagMatch[0].trim() : '15.6" FHD IPS';
+
+      const ramMatch = name.match(/(\d{1,2})\s*(?:GB|ГБ|Gb|гб)(?:\s*DDR[45])?/i);
+      ram = ramMatch ? `${ramMatch[1]} GB` : '16 GB';
+
+      const ssdMatch = name.match(/(\d{3,4})\s*(?:GB|ГБ|Gb|гб|TB|ТБ|Tb|тб)\s*(?:SSD|NVMe|eMMC)?/i);
+      storage = ssdMatch ? ssdMatch[0].trim() : '512 GB SSD';
+
+      const rtxMatch = name.match(/(?:RTX\s*\d{4}(?:\s*Ti)?|GTX\s*\d{4}(?:\s*Ti)?)/i);
+      gpu = rtxMatch ? `NVIDIA GeForce ${rtxMatch[0].trim()}` : 'Intel® Iris® Xe Graphics';
+
+      if (lower.includes('win11') || lower.includes('windows 11') || lower.includes('w11')) {
+        os = 'Microsoft Windows 11';
+      } else {
+        os = 'FreeDOS / Без ОС';
+      }
+    }
+
+    const specsList = [
+      { id: 'cpu', icon: 'cpu', label: 'Процессор', value: cpu || 'Intel® Core™ i5' },
+      { id: 'screen', icon: 'screen', label: 'Экран', value: screen || '15.6" FHD' },
+      { id: 'ram', icon: 'ram', label: 'Оперативная память', value: ram || '16 GB' },
+      { id: 'ssd', icon: 'ssd', label: 'Накопитель', value: storage || '512 GB SSD' },
+      { id: 'gpu', icon: 'gpu', label: 'Видеокарта', value: gpu || 'Intel® Iris® Xe Graphics' },
+      { id: 'os', icon: 'os', label: 'Операционная система', value: os || 'FreeDOS / Без ОС' }
     ];
-  } else if (category === 'phone') {
-    specsList = [
-      { id: 'cpu', icon: 'cpu', label: 'Процессор', value: cpu },
-      { id: 'screen', icon: 'screen', label: 'Экран', value: display || '6.7" OLED 120Hz' },
-      { id: 'ram', icon: 'ram', label: 'Память (RAM/ROM)', value: `${ram} / ${storage}` },
-      { id: 'camera', icon: 'camera', label: 'Камера', value: '48 MP + 12 MP + 12 MP' },
-      { id: 'battery', icon: 'battery', label: 'Аккумулятор', value: '5000 mAh' },
-      { id: 'os', icon: 'os', label: 'ОС', value: 'Android / iOS' }
-    ];
-  } else {
-    specsList = [
-      { id: 'screen', icon: 'screen', label: 'Диагональ / Разрешение', value: display || '55" 4K UHD' },
-      { id: 'cpu', icon: 'cpu', label: 'Процессор / Smart TV', value: cpu || 'Smart TV Tizen OS' },
-      { id: 'sound', icon: 'sound', label: 'Звук', value: 'Dolby Digital Plus 20W' },
-      { id: 'wifi', icon: 'wifi', label: 'Беспроводная связь', value: 'Wi-Fi 5, Bluetooth 5.2' }
-    ];
+
+    return {
+      title,
+      category: 'laptop',
+      sku: sku || '37230025006',
+      specs: specsList
+    };
   }
 
+  // --- Phone specs ---
+  if (category === 'phone') {
+    const ramMatch = name.match(/(\d{1,2})\s*\/\s*(\d{2,4})\s*(?:GB|ГБ)?/i);
+    const ramVal = ramMatch ? `${ramMatch[1]} GB / ${ramMatch[2]} GB` : '8 GB / 256 GB';
+
+    return {
+      title: name,
+      category: 'phone',
+      sku: sku || '',
+      specs: [
+        { id: 'screen', icon: 'screen', label: 'Экран', value: '6.7" OLED 120Hz' },
+        { id: 'cpu', icon: 'cpu', label: 'Процессор', value: '8-ядерный процессор' },
+        { id: 'ram', icon: 'ram', label: 'Память (RAM / ROM)', value: ramVal },
+        { id: 'camera', icon: 'camera', label: 'Камера', value: '50 MP + 8 MP + 2 MP' },
+        { id: 'battery', icon: 'battery', label: 'Аккумулятор', value: '5000 mAh' },
+        { id: 'os', icon: 'os', label: 'Операционная система', value: 'Android' }
+      ]
+    };
+  }
+
+  // --- TV / General specs ---
   return {
     title: name,
-    category,
-    sku: sku || '37230025006',
-    specs: specsList
+    category: 'tv',
+    sku: sku || '',
+    specs: [
+      { id: 'screen', icon: 'screen', label: 'Диагональ / Разрешение', value: '55" 4K UHD Smart TV' },
+      { id: 'cpu', icon: 'cpu', label: 'Smart TV', value: 'Tizen OS / Google TV' },
+      { id: 'sound', icon: 'sound', label: 'Звук', value: 'Dolby Digital Plus 20W' },
+      { id: 'wifi', icon: 'wifi', label: 'Беспроводная связь', value: 'Wi-Fi 5, Bluetooth 5.2' }
+    ]
   };
 }
 
 export function getDefaultLaptopSpecs() {
   return {
-    title: 'Ноутбук ASUS ExpertBook B5 Flip B5402FVA-HY0043X 14 FHD Core i5 1340P 1.9 GHz',
+    title: 'Ноутбук ACER Nitro V16 NL16-71G (NH.DAAER.001)',
     category: 'laptop',
     sku: '37230025006',
     brand: 'МЕЧТА',
-    basePrice: '599990',
-    price: '529990',
-    activeGift: 'Сумка для ноутбука ASUS Nereus Backpack',
+    basePrice: '549990',
+    price: '489990',
+    activeGift: 'Сумка для ноутбука / Игровая мышь',
     specs: [
-      { id: 'cpu', icon: 'cpu', label: 'Процессор', value: '13th Gen Intel(R) Core(TM) i5-1340P' },
-      { id: 'screen', icon: 'screen', label: 'Экран', value: '1920 x 1080' },
-      { id: 'ram', icon: 'ram', label: 'ОЗУ', value: '8 GB' },
-      { id: 'ssd', icon: 'ssd', label: 'Накопитель', value: '475 GB' },
-      { id: 'gpu', icon: 'gpu', label: 'Видеоадаптер', value: 'Intel(R) UHD Graphics' },
-      { id: 'os', icon: 'os', label: 'Операционная система', value: 'Microsoft Windows 11 Pro Standalone Workstation (22H2)' }
+      { id: 'cpu', icon: 'cpu', label: 'Процессор', value: 'Core i5 13420H 2.1 Ghz' },
+      { id: 'screen', icon: 'screen', label: 'Экран', value: '16 WUXGA 165Hz' },
+      { id: 'ram', icon: 'ram', label: 'Оперативная память', value: '16 GB' },
+      { id: 'ssd', icon: 'ssd', label: 'Накопитель', value: '512 GB SSD' },
+      { id: 'gpu', icon: 'gpu', label: 'Видеокарта', value: 'NVIDIA GeForce RTX3050 6 GB' },
+      { id: 'os', icon: 'os', label: 'Операционная система', value: 'FreeDOS / Без ОС' }
     ]
   };
 }
