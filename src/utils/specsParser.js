@@ -212,7 +212,7 @@ export function parseSpecsFromRawName(rawName = '') {
   // --- Parse Laptop Specifications via Slash Delimiter ---
   if (category === 'laptop') {
     let parts = smartSplitSlashes(name);
-    let title = parts[0] || name;
+    const title = name; // Название номенклатуры остается полностью как есть в базе
     let screen = '';
     let cpu = '';
     let ram = '';
@@ -220,16 +220,15 @@ export function parseSpecsFromRawName(rawName = '') {
     let gpu = '';
     let os = '';
 
-    // Check if screen is attached to title before first slash, e.g. "Model (SKU) 16 WUXGA/Core..."
-    const screenTailMatch = title.match(/\s+(1[3-7](?:[\.,]\d)?(?:\s*[\"\'″])?(?:\s*(?:FHD|HD|2K|4K|WUXGA|WQXGA|OLED|IPS|Retina|QHD|\d+Hz))*)$/i);
+    // Если экран прикреплен перед первым слешем, например "Модель 16 WUXGA/Core..."
+    const screenTailMatch = (parts[0] || '').match(/\s+(1[3-7](?:[\.,]\d)?(?:\s*[\"\'″])?(?:\s*(?:FHD|HD|2K|4K|WUXGA|WQXGA|OLED|IPS|Retina|QHD|\d+Hz))*)$/i);
     if (screenTailMatch && parts.length >= 4 && !/(?:Core|Ryzen|Celeron|Pentium|Apple|Ultra)/i.test(screenTailMatch[1])) {
       screen = screenTailMatch[1].trim();
-      title = title.substring(0, screenTailMatch.index).trim();
-      parts = [title, screen, ...parts.slice(1)];
+      const cleanP0 = parts[0].substring(0, screenTailMatch.index).trim();
+      parts = [cleanP0, screen, ...parts.slice(1)];
     }
 
     if (parts.length >= 5) {
-      title = parts[0];
       screen = parts[1];
       cpu = parts[2];
       ram = formatRam(parts[3]);

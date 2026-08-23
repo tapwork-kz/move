@@ -739,7 +739,7 @@ export default function App() {
       if (itemsData && itemsData.length > 0) {
         const targetBranch = getActiveBranch();
 
-        // Прямой параллельный поиск остатков по каждой позиции документа (устраняет сбои с кавычками и неразрывными пробелами)
+        // Строгий параллельный поиск остатков по точному названию позиции в inventory филиала (исключает ложные подмены)
         const stockPromises = itemsData.map(async (item) => {
           const raw = item.raw_name ? item.raw_name.trim() : '';
           const rawClean = raw ? raw.replace(/[\s\u00a0]+/g, ' ') : '';
@@ -757,7 +757,7 @@ export default function App() {
             if (rawMatches && rawMatches.length > 0) return { item, inv: rawMatches[0] };
           }
 
-          // 2. Поиск по очищенному raw_name
+          // 2. Поиск по очищенному от \u00a0 raw_name
           if (rawClean && rawClean !== raw) {
             const { data: rawCleanMatches } = await supabase
               .from('inventory')
@@ -768,7 +768,7 @@ export default function App() {
             if (rawCleanMatches && rawCleanMatches.length > 0) return { item, inv: rawCleanMatches[0] };
           }
 
-          // 3. Поиск по normalized_name
+          // 3. Поиск по точному normalized_name
           if (normClean) {
             const { data: normMatches } = await supabase
               .from('inventory')
@@ -779,20 +779,7 @@ export default function App() {
             if (normMatches && normMatches.length > 0) return { item, inv: normMatches[0] };
           }
 
-          // 4. Поиск по подстроке/модели (как в табеле ведомости)
-          if (rawClean) {
-            const cleanKeyword = rawClean.replace(/["'«»]/g, '').trim().slice(0, 32);
-            if (cleanKeyword.length >= 4) {
-              const { data: subMatches } = await supabase
-                .from('inventory')
-                .select('id, raw_name, normalized_name, stock_warehouse, stock_showcase')
-                .eq('branch', targetBranch)
-                .ilike('raw_name', `%${cleanKeyword}%`)
-                .limit(1);
-              if (subMatches && subMatches.length > 0) return { item, inv: subMatches[0] };
-            }
-          }
-
+          // Если точного совпадения в БД выбранного филиала нет — остаток строго 0
           return { item, inv: null };
         });
 
