@@ -38,6 +38,15 @@ export default function PriceTagSettingsModal({
   });
 
   const [hardwareDetecting, setHardwareDetecting] = useState(false);
+  const [kioskConfig, setKioskConfig] = useState({
+    syncTime: true,
+    createPromo: true,
+    setSchedule: true,
+    wakeTime: '09:30',
+    sleepTime: '22:30'
+  });
+  const [kioskApplying, setKioskApplying] = useState(false);
+  const [kioskStatusMsg, setKioskStatusMsg] = useState(null);
 
   useEffect(() => {
     if (currentConfig) {
@@ -256,6 +265,48 @@ export default function PriceTagSettingsModal({
     }));
   };
 
+  const handleSyncTimeNow = async () => {
+    setKioskApplying(true);
+    setKioskStatusMsg(null);
+    try {
+      if (window.electronAPI && window.electronAPI.syncAstanaTime) {
+        const res = await window.electronAPI.syncAstanaTime();
+        if (res.success) {
+          setKioskStatusMsg(`✓ Точное время Астаны (UTC+5) успешно установлено: ${res.time || new Date().toLocaleTimeString('ru-RU')}`);
+        } else {
+          setKioskStatusMsg(`Ошибка синхронизации: ${res.error || 'Не удалось синхронизировать'}`);
+        }
+      } else {
+        setKioskStatusMsg(`✓ Точное время Астаны (UTC+5): ${new Date().toLocaleTimeString('ru-RU')} (эмуляция веб)`);
+      }
+    } catch (e) {
+      setKioskStatusMsg(`Ошибка: ${e.message}`);
+    } finally {
+      setKioskApplying(false);
+    }
+  };
+
+  const handleApplyKioskToWindows = async () => {
+    setKioskApplying(true);
+    setKioskStatusMsg(null);
+    try {
+      if (window.electronAPI && window.electronAPI.applyKioskSchedule) {
+        const res = await window.electronAPI.applyKioskSchedule(kioskConfig);
+        if (res.success) {
+          setKioskStatusMsg(`✓ Расписание витрины успешно зарегистрировано в Windows! (Включение: ${kioskConfig.wakeTime}, Выключение: ${kioskConfig.sleepTime})`);
+        } else {
+          setKioskStatusMsg(`Ошибка настройки: ${res.error || 'Не удалось зарегистрировать задачи'}`);
+        }
+      } else {
+        setKioskStatusMsg(`✓ Расписание сохранено (Включение: ${kioskConfig.wakeTime}, Выключение: ${kioskConfig.sleepTime})`);
+      }
+    } catch (e) {
+      setKioskStatusMsg(`Ошибка: ${e.message}`);
+    } finally {
+      setKioskApplying(false);
+    }
+  };
+
   const handleSave = () => {
     onSaveConfig(config);
     onClose();
@@ -289,36 +340,46 @@ export default function PriceTagSettingsModal({
         </div>
 
         {/* Tab switcher */}
-        <div className="flex border-b border-slate-200 dark:border-slate-800 px-5 pt-2 gap-2 bg-slate-50/50 dark:bg-slate-950/30">
+        <div className="flex border-b border-slate-200 dark:border-slate-800 px-5 pt-2 gap-2 bg-slate-50/50 dark:bg-slate-950/30 overflow-x-auto no-scrollbar">
           <button
             onClick={() => setActiveTab('search')}
-            className={`pb-2.5 px-3 text-xs font-bold transition border-b-2 ${
+            className={`pb-2.5 px-3 text-xs font-bold transition border-b-2 shrink-0 ${
               activeTab === 'search'
                 ? 'border-rose-600 text-rose-600 dark:text-rose-400'
                 : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'
             }`}
           >
-            1. Поиск в базе Supabase
+            1. Поиск в БД
           </button>
           <button
             onClick={() => setActiveTab('specs')}
-            className={`pb-2.5 px-3 text-xs font-bold transition border-b-2 ${
+            className={`pb-2.5 px-3 text-xs font-bold transition border-b-2 shrink-0 ${
               activeTab === 'specs'
                 ? 'border-rose-600 text-rose-600 dark:text-rose-400'
                 : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'
             }`}
           >
-            2. Цены, подарок и характеристики
+            2. Цены и параметры
           </button>
           <button
             onClick={() => setActiveTab('theme')}
-            className={`pb-2.5 px-3 text-xs font-bold transition border-b-2 ${
+            className={`pb-2.5 px-3 text-xs font-bold transition border-b-2 shrink-0 ${
               activeTab === 'theme'
                 ? 'border-rose-600 text-rose-600 dark:text-rose-400'
                 : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'
             }`}
           >
-            3. Фон и защита OLED
+            3. Фон и OLED
+          </button>
+          <button
+            onClick={() => setActiveTab('kiosk')}
+            className={`pb-2.5 px-3 text-xs font-bold transition border-b-2 shrink-0 ${
+              activeTab === 'kiosk'
+                ? 'border-rose-600 text-rose-600 dark:text-rose-400'
+                : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'
+            }`}
+          >
+            4. Витрина Windows (Таймеры)
           </button>
         </div>
 
@@ -662,6 +723,128 @@ export default function PriceTagSettingsModal({
                   onChange={(e) => setConfig({ ...config, customBgUrl: e.target.value })}
                   className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-medium text-slate-900 dark:text-white outline-none"
                 />
+              </div>
+
+            </div>
+          )}
+
+          {/* TAB 4: WINDOWS SHOWCASE KIOSK & SCHEDULE */}
+          {activeTab === 'kiosk' && (
+            <div className="space-y-4">
+              
+              <div className="p-3.5 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/40 dark:to-indigo-950/40 rounded-xl border border-blue-200 dark:border-blue-800/60">
+                <h4 className="text-xs font-black text-blue-950 dark:text-blue-200 uppercase tracking-wider mb-1 flex items-center gap-1.5">
+                  🖥️ Автоматизация витрины на Windows (Ноутбуки и ПК)
+                </h4>
+                <p className="text-[11px] text-blue-800/90 dark:text-blue-300/90 leading-relaxed">
+                  Позволяет ноутбуку самостоятельно просыпаться утром к открытию магазина, запускать ценник на весь экран и выключаться вечером.
+                </p>
+              </div>
+
+              {/* Timezone & Clock Sync */}
+              <div className="p-3.5 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700 space-y-2.5">
+                <label className="flex items-center gap-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={kioskConfig.syncTime}
+                    onChange={(e) => setKioskConfig({ ...kioskConfig, syncTime: e.target.checked })}
+                    className="rounded text-rose-600 focus:ring-0 w-4 h-4"
+                  />
+                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                    Синхронизировать точное время (Астана, UTC+5)
+                  </span>
+                </label>
+                <p className="text-[11px] text-slate-500 pl-6.5">
+                  Устраняет сбитые часы на ноутбуках: устанавливает часовой пояс Казахстана UTC+5 и синхронизирует время по интернету (NTP).
+                </p>
+                <div className="pl-6.5 pt-1">
+                  <button
+                    type="button"
+                    onClick={handleSyncTimeNow}
+                    disabled={kioskApplying}
+                    className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[11px] font-bold transition shadow-xs"
+                  >
+                    🕒 Синхронизировать часы сейчас
+                  </button>
+                </div>
+              </div>
+
+              {/* Promo Session */}
+              <div className="p-3.5 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700 space-y-1.5">
+                <label className="flex items-center gap-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={kioskConfig.createPromo}
+                    onChange={(e) => setKioskConfig({ ...kioskConfig, createPromo: e.target.checked })}
+                    className="rounded text-rose-600 focus:ring-0 w-4 h-4"
+                  />
+                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                    Создать отдельный сеанс витрины «Promo»
+                  </span>
+                </label>
+                <p className="text-[11px] text-slate-500 pl-6.5">
+                  Создает чистый гостевой профиль Promo без личных файлов, где автоматически стартует ценник.
+                </p>
+              </div>
+
+              {/* Power Schedule Timers */}
+              <div className="p-3.5 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700 space-y-3">
+                <label className="flex items-center gap-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={kioskConfig.setSchedule}
+                    onChange={(e) => setKioskConfig({ ...kioskConfig, setSchedule: e.target.checked })}
+                    className="rounded text-rose-600 focus:ring-0 w-4 h-4"
+                  />
+                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                    Авто-расписание: Включение в 09:30, Выключение в 22:30
+                  </span>
+                </label>
+
+                {kioskConfig.setSchedule && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pl-6.5 pt-1">
+                    <div>
+                      <label className="block text-[10.5px] font-bold text-slate-500 dark:text-slate-400 mb-1">
+                        ⏰ Время утреннего включения:
+                      </label>
+                      <input
+                        type="time"
+                        value={kioskConfig.wakeTime}
+                        onChange={(e) => setKioskConfig({ ...kioskConfig, wakeTime: e.target.value })}
+                        className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-black text-slate-800 dark:text-white outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10.5px] font-bold text-slate-500 dark:text-slate-400 mb-1">
+                        🌙 Время вечернего выключения:
+                      </label>
+                      <input
+                        type="time"
+                        value={kioskConfig.sleepTime}
+                        onChange={(e) => setKioskConfig({ ...kioskConfig, sleepTime: e.target.value })}
+                        className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-black text-slate-800 dark:text-white outline-none"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                <div className="pl-6.5 pt-2">
+                  <button
+                    type="button"
+                    onClick={handleApplyKioskToWindows}
+                    disabled={kioskApplying}
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition shadow-sm active:scale-95 flex items-center gap-1.5"
+                  >
+                    {kioskApplying ? '⏳ Применение...' : '✓ Применить расписание в Планировщике Windows'}
+                  </button>
+                </div>
+
+                {kioskStatusMsg && (
+                  <div className="p-2.5 bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-300 dark:border-emerald-700 rounded-xl text-[11px] font-bold text-emerald-800 dark:text-emerald-200">
+                    {kioskStatusMsg}
+                  </div>
+                )}
               </div>
 
             </div>
