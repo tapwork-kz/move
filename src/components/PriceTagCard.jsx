@@ -142,7 +142,7 @@ export default function PriceTagCard({
 
             {/* Shield Title from photo */}
             <div className="text-[10px] sm:text-xs font-black uppercase tracking-wider leading-tight text-white drop-shadow">
-              АРТЫҚ<br />БАҒАМЕН<br /><span className="text-yellow-300">КЕПІЛДІК</span>
+              АРЗАН<br />БАҒА<br /><span className="text-yellow-300">КЕПІЛДІГІ</span>
             </div>
 
             {/* Installment Badge */}
